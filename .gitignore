@@ -11,3 +11,4 @@ test-results/
 *.log
 .runtime/
 __pycache__/
+/docs/
