@@ -41,6 +41,7 @@ input, select { min-width: 0; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 svg { flex-shrink: 0; }
+.brand-mark { display: block; object-fit: contain; flex-shrink: 0; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 ::selection { color: var(--selected-text); background: var(--selected-bg); }
 .sr-only { position: absolute; height: 1px; width: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

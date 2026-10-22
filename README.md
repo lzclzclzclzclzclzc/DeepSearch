@@ -15,6 +15,8 @@
 
 AI 总结、正文预览及账户属于后续阶段，P0 无需配置模型。
 
+页眉及浏览器图标使用鲸鱼娘头像，透明原图、发布尺寸及生成提示词见 [品牌素材说明](docs/brand/README.md)。
+
 ## 本地启动
 
 需要 Node.js 24 LTS、npm 和已运行的 Docker Desktop / Docker Engine。

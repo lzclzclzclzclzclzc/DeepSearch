@@ -241,6 +241,7 @@ class BrowserAcceptance(unittest.TestCase):
         expect(modal).to_be_visible()
         expect(modal).to_contain_text("配置 API key")
         expect(modal).to_contain_text("尚未配置密钥")
+
         field = modal.get_by_label("DeepSeek API key", exact=True)
         self.assertEqual(field.get_attribute("type"), "password")
         field.fill("browser-test-key-not-real")
@@ -260,6 +261,24 @@ class BrowserAcceptance(unittest.TestCase):
             self.page.screenshot(path=str(OUTPUT / f"settings-{width}-light.png"), full_page=True)
         modal.get_by_role("button", name="移除个人密钥").click()
         expect(modal).to_contain_text("尚未配置密钥")
+
+    def test_whale_girl_brand_assets_in_both_themes(self):
+        logo = self.page.locator('header a[aria-label="DeepSearch 首页"] img')
+        expect(logo).to_have_attribute("src", "/brand/whale-girl.webp")
+        expect(logo).to_be_visible()
+        self.assertTrue(logo.evaluate("image => image.complete && image.naturalWidth > 0"))
+        expect(self.page.locator('link[rel="icon"][sizes="32x32"]')).to_have_attribute("href", "/brand/icon-32.png")
+        expect(self.page.locator('link[rel="apple-touch-icon"]')).to_have_attribute("href", "/brand/apple-touch-icon.png")
+        favicon = self.page.request.get(BASE + "/brand/icon-32.png")
+        self.assertEqual(favicon.status, 200)
+        self.assertIn("image/png", favicon.headers["content-type"])
+        self.page.emulate_media(reduced_motion="reduce")
+        self.page.screenshot(path=str(OUTPUT / "whale-girl-home-light.png"), full_page=True)
+        self.page.get_by_role("button", name="切换为深色主题").click()
+        self.page.set_viewport_size({"width": 375, "height": 812})
+        expect(logo).to_be_visible()
+        self.assertFalse(self.page.evaluate("document.documentElement.scrollWidth > innerWidth"))
+        self.page.screenshot(path=str(OUTPUT / "whale-girl-mobile-dark.png"), full_page=True)
 
 
 if __name__ == "__main__":

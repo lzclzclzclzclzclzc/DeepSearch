@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import Image from "next/image";
 export type IconName = "search" | "arrow" | "sun" | "moon" | "chevron" | "close" | "filter" | "globe" | "clock" | "share" | "trash" | "alert" | "check" | "external" | "settings" | "key";
 const paths: Record<IconName, React.ReactNode> = {
   search: <><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 4.5 4.5"/></>,
@@ -21,6 +22,6 @@ const paths: Record<IconName, React.ReactNode> = {
 export function Icon({ name, size = 20, style }: { name: IconName; size?: number; style?: CSSProperties }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}>{paths[name]}</svg>;
 }
-export function BrandMark({ size = 30 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M7 10h11.5C27 10 33 16 33 24s-6 14-14.5 14H7V10Z" transform="translate(0 -4)" stroke="currentColor" strokeWidth="4"/><path d="M7 6v28m0-14h14" stroke="currentColor" strokeWidth="4"/><circle cx="21" cy="20" r="4" fill="currentColor"/></svg>;
+export function BrandMark({ size = 40 }: { size?: number }) {
+  return <Image className="brand-mark" src="/brand/whale-girl.webp" width={size} height={size} alt="" aria-hidden="true" unoptimized priority/>;
 }
