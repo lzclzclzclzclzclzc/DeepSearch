@@ -1,0 +1,10 @@
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { resolve, delimiter } from "node:path";
+import { fileURLToPath } from "node:url";
+const root = fileURLToPath(new URL("../../", import.meta.url));
+const local = resolve(root, ".runtime/python");
+const env = { ...process.env };
+if (existsSync(local)) env.PYTHONPATH = [local, env.PYTHONPATH].filter(Boolean).join(delimiter);
+const result = spawnSync(process.platform === "win32" ? "python" : "python3", [fileURLToPath(new URL("./browser_test.py", import.meta.url)), ...process.argv.slice(2)], { cwd: root, stdio: "inherit", env });
+process.exit(result.status ?? 1);
