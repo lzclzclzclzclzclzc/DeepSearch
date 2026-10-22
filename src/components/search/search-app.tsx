@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { BrandMark, Icon } from "@/components/icons";
 import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Settings } from "./settings";
+import { FilterSelect } from "./filter-select";
+import { AnswerPanel } from "./answer-panel";
 import { emptyFilters, type ApiError, type SearchFilters, type SearchResponse } from "@/shared/search";
 import styles from "./search.module.css";
 
@@ -35,6 +37,7 @@ export function SearchApp() {
   const [customOpen, setCustomOpen] = useState(false); const [after, setAfter] = useState(""); const [before, setBefore] = useState("");
   const [notice, setNotice] = useState(""); const [clearing, setClearing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(""); const citationTarget = useRef("");
   const request = useRef<AbortController | null>(null); const sequence = useRef(0); const composing = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null); const input = useRef<HTMLInputElement>(null);
   const lastAction = useRef<(() => void) | null>(null);
@@ -52,7 +55,11 @@ export function SearchApp() {
       if (!response.ok || "error" in body) { setError("error" in body ? body.error : { code: "UPSTREAM_UNAVAILABLE", message: "搜索服务暂时不可用，请重试。", retryable: true }); return; }
       setData(body); applied.current = { query: body.query, filters: state.filters, period: state.period };
       if (mode !== "none") history[mode === "push" ? "pushState" : "replaceState"]({}, "", queryURL(body.query, state.filters, state.period, body.page, body.searchId));
-      requestAnimationFrame(() => { heading.current?.focus({ preventScroll: true }); heading.current?.scrollIntoView({ block: "start" }); });
+      const target = citationTarget.current;
+      requestAnimationFrame(() => {
+        const element = target ? document.getElementById(`source-${target}`) : body.page === 1 ? document.getElementById("answer-panel") ?? heading.current : heading.current;
+        element?.focus({ preventScroll: true }); element?.scrollIntoView({ block: "start" }); citationTarget.current = "";
+      });
     } catch (failure) {
       if (id !== sequence.current || controller.signal.aborted) return;
       setError({ code: "UPSTREAM_UNAVAILABLE", message: "连接中断，请检查网络后重试。", retryable: true });
@@ -74,6 +81,7 @@ export function SearchApp() {
     if (!value) { setError({ code: "INVALID_QUERY", message: "请输入想查找的内容。", retryable: false }); input.current?.focus(); return; }
     if ([...value].length > 128) { setError({ code: "QUERY_TOO_LONG", message: "搜索词最多为 128 个字符。", retryable: false }); input.current?.focus(); return; }
     setQuery(nextQuery); setFilters(nextFilters); setPeriod(nextPeriod); setSiteOpen(false); setCustomOpen(false);
+    setHighlighted(""); citationTarget.current = "";
     void load({ query: value, filters: nextFilters, period: nextPeriod, page: 1, searchId: null }, "push", true);
   }
   function submit(event: FormEvent) { event.preventDefault(); if (!composing.current) search(); }
@@ -89,6 +97,12 @@ export function SearchApp() {
   function page(number: number) {
     if (!data) return;
     void load({ ...applied.current, page: number, searchId: data.searchId }, "push");
+  }
+  function source(id: string) {
+    if (!data) return;
+    setHighlighted(id); const number = Math.floor((Number(id.slice(1)) - 1) / 10) + 1;
+    if (number !== data.page) { citationTarget.current = id; page(number); }
+    else { const element = document.getElementById(`source-${id}`); element?.focus({ preventScroll: true }); element?.scrollIntoView({ block: "center" }); }
   }
   async function share() {
     if (!data) return;
@@ -126,10 +140,10 @@ export function SearchApp() {
         <div className={styles.heroDecoration} aria-hidden="true"><div/><div/><span>OPEN A NEW PERSPECTIVE</span></div>
       </section>}
       {searched && <>
-        <div className={styles.toolRow}><span className={styles.activeTab}><Icon name="globe" size={17}/>网页</span><div className={styles.toolRight}><span>找到线索，继续探索</span><button className="text-button" onClick={share} disabled={!data}><Icon name="share" size={16}/>分享搜索</button></div></div>
+        <div className={styles.toolRow}><span className={styles.activeTab}><Icon name="globe" size={17}/>网页</span><div className={styles.toolRight}><button className="text-button" onClick={share} disabled={!data}><Icon name="share" size={16}/>分享搜索</button></div></div>
         <div className={styles.filters} aria-label="搜索筛选">
-          <label className={styles.selectControl}><Icon name="clock" size={16}/><span className="sr-only">时间范围</span><select aria-label="时间范围" value={customOpen ? "custom" : period} onChange={event => changePeriod(event.target.value)}><option value="all">不限时间</option><option value="week">最近一周</option><option value="month">最近一月</option><option value="custom">自定义日期</option></select></label>
-          <label className={styles.selectControl}><Icon name="globe" size={16}/><span className="sr-only">结果语言</span><select aria-label="结果语言" value={filters.languages.join(",")} onChange={event => changeFilters({ ...filters, languages: event.target.value ? event.target.value.split(",") as SearchFilters["languages"] : [] })}><option value="">不限语言</option><option value="zh">中文</option><option value="en">英文</option><option value="zh,en">中文和英文</option></select></label>
+          <FilterSelect label="时间范围" icon="clock" value={customOpen ? "custom" : period} onChange={changePeriod} options={[{ value: "all", label: "不限时间" }, { value: "week", label: "最近一周" }, { value: "month", label: "最近一月" }, { value: "custom", label: "自定义日期" }]}/>
+          <FilterSelect label="结果语言" icon="globe" value={filters.languages.join(",")} onChange={value => changeFilters({ ...filters, languages: value ? value.split(",") as SearchFilters["languages"] : [] })} options={[{ value: "", label: "不限语言" }, { value: "zh", label: "中文" }, { value: "en", label: "英文" }, { value: "zh,en", label: "中文和英文" }]}/>
           <button className={`${styles.filterButton} ${siteOpen ? styles.filterActive : ""}`} aria-expanded={siteOpen} aria-controls="site-filter" onClick={() => { setSiteOpen(!siteOpen); setCustomOpen(false); setSiteDraft([...filters.includeDomains, ...filters.excludeDomains].join(", ")); setSiteMode(filters.excludeDomains.length ? "exclude" : "include"); }}><Icon name="filter" size={16}/>{filters.includeDomains.length + filters.excludeDomains.length ? "已筛选站点" : "全部站点"}<Icon name="chevron" size={12} style={{ transform: "rotate(90deg)" }}/></button>
           {activeFilters > 0 && <button className={styles.resetFilters} onClick={() => changeFilters(emptyFilters(), "all")}><Icon name="close" size={14}/>清除筛选</button>}
           {siteOpen && <form id="site-filter" className={styles.filterPanel} onSubmit={event => { event.preventDefault(); const domains = siteDraft.split(/[,，\s]+/u).filter(Boolean); changeFilters({ ...filters, includeDomains: siteMode === "include" ? domains : [], excludeDomains: siteMode === "exclude" ? domains : [] }); }}><div className={styles.panelHeading}>筛选来源站点<button type="button" className="icon-button" aria-label="关闭站点筛选" onClick={() => setSiteOpen(false)}><Icon name="close" size={16}/></button></div><label>筛选方式<select aria-label="站点筛选方式" value={siteMode} onChange={event => setSiteMode(event.target.value)}><option value="include">仅包含这些站点</option><option value="exclude">排除这些站点</option></select></label><label>域名<input value={siteDraft} onChange={event => setSiteDraft(event.target.value)} placeholder="例如 wikipedia.org" autoFocus/></label><p>最多 5 个域名，用逗号分隔，不含 https://。</p><button type="submit" className="primary-button">应用筛选<Icon name="arrow" size={16}/></button></form>}
@@ -139,15 +153,16 @@ export function SearchApp() {
       </>}
       {error && <div id="search-error" className={styles.error} role="alert"><Icon name="alert" size={22}/><div><strong>{error.code === "SNAPSHOT_EXPIRED" ? "本次搜索已过期" : "这次搜索遇到了一点问题"}</strong><p>{error.message}</p>{data && <p>下方保留上次成功获取的结果。</p>}{error.code === "SNAPSHOT_EXPIRED" ? <button className="text-button" onClick={() => search()}>重新搜索<Icon name="arrow" size={15}/></button> : error.retryable && <button className="text-button" onClick={() => lastAction.current?.()}>重试<Icon name="arrow" size={15}/></button>}</div></div>}
       {searched && <div className={styles.resultGrid}><section className={styles.resultColumn} aria-busy={busy}>
+        {data && data.snapshotCount > 0 && <AnswerPanel key={data.searchId} searchId={data.searchId} disabled={busy} onSource={source}/>}
         {data?.warnings.map(warning => <p className={styles.staleWarning} role="status" key={warning}>{warning}</p>)}
         <div className={styles.resultMeta}><h1 ref={heading} tabIndex={-1} className={styles.resultHeading}>{data ? data.snapshotCount ? <>第 {(data.page - 1) * 10 + 1}–{Math.min(data.page * 10, data.snapshotCount)} 条<span> / 本次共 {data.snapshotCount} 条</span></> : "本次未找到结果" : busy ? "正在查找相关网页…" : "搜索结果"}</h1>{data && <span className={styles.fetchedTime}>{formatTime(data.fetchedAt)} 获取{data.cache === "stale" ? " · 较早结果" : ""}</span>}</div>
-        {busy && !data ? <div className={styles.skeletons} aria-label="正在加载搜索结果">{Array.from({ length: 5 }, (_, i) => <div className={styles.skeleton} key={i}><i/><b/><span/><span/></div>)}</div> : data?.snapshotCount === 0 ? <div className={styles.emptyState}><div className={styles.emptyIcon}><Icon name="search" size={28}/></div><h2>有时候，换个问法就能找到。</h2><p>试试更简短的关键词，<br/>或取消部分筛选，给发现多一点空间。</p>{activeFilters > 0 && <button className="primary-button" onClick={() => changeFilters(emptyFilters(), "all")}>取消筛选，重新搜索<Icon name="arrow" size={16}/></button>}</div> : <div className={busy ? styles.dimResults : ""}>{data?.results.map(result => <article className={styles.result} key={result.sourceId}>
+        {busy && !data ? <div className={styles.skeletons} aria-label="正在加载搜索结果">{Array.from({ length: 5 }, (_, i) => <div className={styles.skeleton} key={i}><i/><b/><span/><span/></div>)}</div> : data?.snapshotCount === 0 ? <div className={styles.emptyState}><div className={styles.emptyIcon}><Icon name="search" size={28}/></div><h2>有时候，换个问法就能找到。</h2><p>试试更简短的关键词，<br/>或取消部分筛选，给发现多一点空间。</p>{activeFilters > 0 && <button className="primary-button" onClick={() => changeFilters(emptyFilters(), "all")}>取消筛选，重新搜索<Icon name="arrow" size={16}/></button>}</div> : <div className={busy ? styles.dimResults : ""}>{data?.results.map(result => <article id={`source-${result.sourceId}`} tabIndex={-1} className={`${styles.result} ${highlighted === result.sourceId ? styles.highlighted : ""}`} key={result.sourceId}>
           <div className={styles.source}><span className={styles.domainIcon} aria-hidden="true">{result.domain.replace(/^www\./, "").slice(0, 1).toUpperCase()}</span><div><span className={styles.siteName}>{result.siteName}</span><span className={styles.sourcePath}>{result.domain}{result.publishedAt && <><span> · </span><time dateTime={result.publishedAt}>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(result.publishedAt))}</time></>}</span></div><span className={styles.sourceNumber}>{result.sourceId}</span></div>
           <h2><a href={result.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{result.title}<Icon name="external" size={15}/></a></h2><p className={styles.snippet}>{result.snippet || "此网页暂未提供摘要，打开来源了解更多。"}</p>
         </article>)}</div>}
         {data && data.totalPages > 0 && <nav className={styles.pagination} aria-label="搜索结果分页"><button onClick={() => page(data.page - 1)} disabled={!data.hasPreviousPage} aria-label="上一页"><Icon name="chevron" size={16} style={{ transform: "rotate(180deg)" }}/><span>上一页</span></button><div className={styles.pageNumbers}>{Array.from({ length: data.totalPages }, (_, i) => i + 1).map(number => <button key={number} onClick={() => page(number)} aria-label={`第 ${number} 页`} aria-current={data.page === number ? "page" : undefined}>{number}</button>)}</div><span className={styles.mobilePage}>{data.page} / {data.totalPages}</span><button onClick={() => page(data.page + 1)} disabled={!data.hasNextPage} aria-label="下一页"><span>下一页</span><Icon name="chevron" size={16}/></button></nav>}
         {data && data.totalPages > 0 && <p className={styles.paginationNote}>{data.hasNextPage ? "每页 10 条 · 翻页继续浏览本次搜索结果" : "已到本次结果末页 · 试着调整关键词，发现更多"}</p>}
-      </section><aside className={styles.aside}><span className={styles.asideSymbol}>↗</span><p className={styles.asideEyebrow}>FOLLOW YOUR CURIOSITY</p><h2>答案之外，<br/>还有新发现。</h2><p>打开原网页，阅读完整语境。<br/>让信息有来源，让探索有方向。</p><div className={styles.asideRule}/><span className={styles.asideNote}>保留来源顺序 · 每页 10 条</span>{data?.warnings.map(warning => <p className={styles.staleWarning} key={warning}>{warning}</p>)}</aside></div>}
+      </section></div>}
       <p className="sr-only" role="status" aria-live="polite">{busy ? "正在加载，请稍候。" : data ? `已显示第 ${data.page} 页，本次共 ${data.snapshotCount} 条结果。` : ""}</p>
     </main>
     <footer className={styles.footer}><span className={styles.footerBrand}>DeepSearch<span>保持好奇，持续发现。</span></span><div><span className={styles.powered}>由 DeepSeek Search 提供检索</span><button onClick={clear} disabled={clearing} className="text-button"><Icon name="trash" size={14}/>{clearing ? "正在清除…" : "清除会话数据"}</button></div></footer>

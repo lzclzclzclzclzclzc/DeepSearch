@@ -3,6 +3,7 @@ import json
 import os
 import re
 import unittest
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -39,6 +40,11 @@ class BrowserAcceptance(unittest.TestCase):
         self.failed_page = False
         self.key_status = {"configured": False, "source": "none", "state": "saved"}
         self.saved_keys = []
+        self.answer_posts = []
+        self.answers = {}
+        self.hold_answer = False
+        self.held_answers = []
+        self.current_search_id = "12345678-1234-1234-1234-123456789012"
         self.page.route("**/api/**", self.api)
         self.page.goto(BASE)
         self.page.wait_for_load_state("networkidle")
@@ -50,7 +56,7 @@ class BrowserAcceptance(unittest.TestCase):
     def response(self, page=1, query="Rust", count=37):
         now = datetime.now(timezone.utc)
         total = (count + 9) // 10
-        return {"requestId": "browser-test", "searchId": "12345678-1234-1234-1234-123456789012", "query": query, "effectiveQuery": query,
+        return {"requestId": "browser-test", "searchId": self.current_search_id, "query": query, "effectiveQuery": query,
                 "fetchedAt": now.isoformat(), "expiresAt": (now + timedelta(minutes=30)).isoformat(), "cache": "miss",
                 "results": [{"sourceId": f"S{i:02d}", "title": f"Rust 异步编程指南 · 第 {i} 个来源", "url": f"https://example.com/article/{i}", "domain": "example.com", "siteName": "Rust 学习社区", "snippet": "从基础概念到实际项目，了解异步运行时如何工作。结合代码示例与最佳实践，构建清晰、可靠的应用程序。阅读完整文章，探索更多细节。", "publishedAt": "2026-10-20T00:00:00Z" if i % 2 else None} for i in range((page - 1) * 10 + 1, min(page * 10, count) + 1)],
                 "snapshotCount": count, "page": page, "pageSize": 10, "totalPages": total, "hasPreviousPage": page > 1, "hasNextPage": page < total, "warnings": []}
@@ -61,8 +67,23 @@ class BrowserAcceptance(unittest.TestCase):
         if path == "/api/search" and request.method == "POST":
             payload = request.post_data_json
             self.posts.append(payload)
+            self.current_search_id = str(uuid.uuid5(uuid.NAMESPACE_URL, json.dumps(payload, sort_keys=True)))
             route.fulfill(json=self.response(query=payload["query"], count=0 if payload["query"] == "empty" else 37))
+        elif path.endswith("/answer"):
+            search_id = path.split("/")[-2]
+            if request.method == "GET":
+                route.fulfill(json={"answer": self.answers.get(search_id)})
+            else:
+                self.answer_posts.append(request.post_data_json)
+                if self.hold_answer:
+                    self.held_answers.append(route)
+                    return
+                answer = {"searchId": search_id, "model": "deepseek-flash", "generatedAt": datetime.now(timezone.utc).isoformat(), "blocks": [{"text": "异步运行时负责调度任务，让等待中的操作不阻塞其他任务。", "citations": ["S01", "S11"]}], "sources": [{"sourceId": sid, "title": "异步编程来源 " + sid, "url": "https://example.com/" + sid, "publishedAt": None, "fetchedAt": datetime.now(timezone.utc).isoformat()} for sid in ("S01", "S11")]}
+                self.answers[search_id] = answer
+                frames = [("status", {"phase": "generating", "sources": answer["sources"]}), ("answer.block", answer["blocks"][0]), ("done", answer)]
+                route.fulfill(content_type="text/event-stream", body="".join("event: " + event + "\ndata: " + json.dumps(body) + "\n\n" for event, body in frames))
         elif path.startswith("/api/search/"):
+            self.current_search_id = path.split("/")[-1]
             number = int(parse_qs(urlparse(request.url).query).get("page", [1])[0])
             self.gets.append(number)
             if self.expired:
@@ -105,7 +126,8 @@ class BrowserAcceptance(unittest.TestCase):
         self.assertEqual(len(self.posts), 1)
         self.page.go_back()
         expect(self.page.get_by_role("heading", level=1)).to_contain_text("第 1–10 条")
-        self.page.get_by_label("结果语言", exact=True).select_option("en")
+        self.page.get_by_role("button", name="结果语言", exact=True).click()
+        self.page.get_by_role("option", name="英文", exact=True).click()
         expect(self.page).to_have_url(re.compile("lang=en"))
         self.assertEqual(self.posts[-1]["filters"]["languages"], ["en"])
         self.assertEqual(self.posts[-1]["query"], "Rust")
@@ -287,6 +309,64 @@ class BrowserAcceptance(unittest.TestCase):
         expect(logo).to_be_visible()
         self.assertFalse(self.page.evaluate("document.documentElement.scrollWidth > innerWidth"))
         self.page.screenshot(path=str(OUTPUT / "whale-girl-mobile-dark.png"), full_page=True)
+
+    def test_filter_menus_keyboard_theme_and_date_range(self):
+        self.search()
+        for _ in range(2):
+            self.page.get_by_role("button", name="时间范围", exact=True).click()
+            menu = self.page.get_by_role("listbox", name="时间范围", exact=True)
+            expect(menu).to_be_visible()
+            expect(menu.get_by_role("option", name="不限时间", exact=True)).to_have_attribute("aria-selected", "true")
+            self.page.keyboard.press("Escape")
+            expect(menu).not_to_be_visible()
+            expect(self.page.get_by_role("button", name="时间范围", exact=True)).to_be_focused()
+            self.page.get_by_role("button", name=re.compile("切换为.*主题")).click()
+        self.page.get_by_role("button", name="结果语言", exact=True).click()
+        self.page.keyboard.press("ArrowDown")
+        self.page.keyboard.press("Enter")
+        expect(self.page).to_have_url(re.compile("lang=zh"))
+        self.page.get_by_role("button", name="时间范围", exact=True).click()
+        self.page.get_by_role("option", name="自定义日期", exact=True).click()
+        expect(self.page.get_by_role("button", name="应用日期", exact=False)).to_be_visible()
+        self.page.screenshot(path=str(OUTPUT / "filter-date-panel.png"), full_page=True)
+
+    def test_manual_summary_citations_refresh_and_new_search(self):
+        self.search()
+        panel = self.page.get_by_role("region", name="AI 总结", exact=True)
+        expect(panel.get_by_role("button", name="生成 AI 总结", exact=True)).to_be_enabled()
+        self.assertEqual(self.answer_posts, [])
+        panel.get_by_role("button", name="生成 AI 总结", exact=True).click()
+        expect(panel).to_contain_text("异步运行时负责调度任务")
+        panel.get_by_role("button", name="查看来源 S11", exact=True).click()
+        expect(self.page.get_by_role("heading", level=1)).to_contain_text("第 11–20 条")
+        expect(self.page.locator("#source-S11")).to_be_focused()
+        expect(panel).to_contain_text("异步运行时负责调度任务")
+        self.assertEqual(len(self.answer_posts), 1)
+        self.page.reload()
+        expect(panel).to_contain_text("异步运行时负责调度任务")
+        self.assertEqual(len(self.answer_posts), 1)
+        for width in (375, 768, 1440):
+            self.page.set_viewport_size({"width": width, "height": 900})
+            self.assertFalse(self.page.evaluate("document.documentElement.scrollWidth > innerWidth"))
+            self.page.screenshot(path=str(OUTPUT / f"ai-summary-{width}.png"), full_page=True)
+        self.page.get_by_role("searchbox", name="搜索关键词").fill("new query")
+        self.page.get_by_role("button", name="搜索", exact=True).click()
+        expect(panel.get_by_role("button", name="生成 AI 总结", exact=True)).to_be_enabled()
+        expect(panel).not_to_contain_text("异步运行时负责调度任务")
+        self.assertEqual(len(self.answer_posts), 1)
+
+    def test_summary_stop_and_late_response_does_not_replace_new_results(self):
+        self.search()
+        self.hold_answer = True
+        panel = self.page.get_by_role("region", name="AI 总结", exact=True)
+        panel.get_by_role("button", name="生成 AI 总结", exact=True).click()
+        expect(panel.get_by_role("button", name="停止生成", exact=True)).to_be_visible()
+        panel.get_by_role("button", name="停止生成", exact=True).click()
+        expect(panel).to_contain_text("已停止生成")
+        self.search("another query")
+        self.assertTrue(self.held_answers)
+        self.held_answers[0].fulfill(content_type="text/event-stream", body='event: answer.block\ndata: {"text":"旧总结","citations":["S01"]}\n\n')
+        expect(panel).not_to_contain_text("旧总结")
 
 
 if __name__ == "__main__":

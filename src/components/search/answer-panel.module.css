@@ -1,0 +1,25 @@
+.panel { margin: 0 0 30px; padding: 23px 25px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.panel:focus { outline: none; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.heading > div { display: flex; align-items: center; gap: 10px; }
+.heading h2 { font-size: 16px; font-weight: 600; margin: 0; }
+.mark { font-size: 10px; font-weight: 700; color: var(--accent); background: var(--surface-soft); border: 1px solid var(--border); width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; }
+.generate { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; padding: 0 13px; color: var(--accent); background: var(--surface-soft); border-radius: 8px; font-size: 12px; }
+.generate:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.description { color: var(--text-muted); font-size: 11px; line-height: 1.9; margin: 12px 0 0; }
+.status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); margin: 16px 0; }
+.status > span { height: 6px; width: 6px; border-radius: 50%; background: var(--accent); animation: breathe 1.4s ease-in-out infinite; }
+.block { margin: 18px 0; font-size: 14px; line-height: 1.95; overflow-wrap: anywhere; }
+.block p { display: inline; margin: 0; white-space: pre-wrap; }
+.citation { display: inline-flex; align-items: center; justify-content: center; margin-left: 5px; padding: 0 5px; min-height: 28px; border-radius: 5px; background: var(--surface-soft); color: var(--accent); font-size: 10px; font-weight: 600; vertical-align: baseline; }
+.citation:hover { text-decoration: underline; }
+.notice { font-size: 12px; color: var(--text-muted); line-height: 1.9; }
+.error { color: var(--error); font-size: 12px; margin: 15px 0 0; }
+.sources { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 18px; font-size: 11px; color: var(--text-muted); }
+.sources summary { cursor: pointer; min-height: 32px; }
+.sources ol { margin: 5px 0 0; padding-left: 18px; }
+.sources li { margin: 9px 0; overflow-wrap: anywhere; }
+.sources a { display: inline-flex; gap: 4px; align-items: baseline; }
+.sources li > span { display: block; font-size: 10px; }
+@keyframes breathe { 50% { opacity: .3; } }
+@media (max-width: 640px) { .panel { padding: 17px; }.heading h2 { font-size: 14px; }.generate { font-size: 11px; padding: 0 10px; }.block { font-size: 14px; } }
