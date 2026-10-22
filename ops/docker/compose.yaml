@@ -32,7 +32,7 @@ services:
       NODE_ENV: production
       REDIS_CONTENT_URL: redis://redis-content:6379
       REDIS_CONTROL_URL: redis://redis-control:6379
-    ports: ["127.0.0.1:3000:3000"]
+    ports: ["127.0.0.1:3333:3333"]
     depends_on:
       redis-content: { condition: service_healthy }
       redis-control: { condition: service_healthy }

@@ -68,16 +68,16 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     const rows = evidence().map(row => ({ title: row.title, url: row.url, snippet: row.snippet, summary: row.summary, date: null, site_name: null, rerank_score: 1, authority: -1 }));
     const provider = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ results: rows })));
     try {
-      const created = await POST(new Request("http://localhost:3000/api/search", { method: "POST", headers: { Origin: "http://localhost:3000", "Content-Type": "application/json" }, body: JSON.stringify({ query: "Rust" }) }));
+      const created = await POST(new Request("http://localhost:3333/api/search", { method: "POST", headers: { Origin: "http://localhost:3333", "Content-Type": "application/json" }, body: JSON.stringify({ query: "Rust" }) }));
       expect(created.status).toBe(200); const first = await created.json(); expect(first.results).toHaveLength(10); expect(first.results[0]).not.toHaveProperty("summary");
       const cookie = created.headers.get("set-cookie")!.split(";")[0];
-      const read = await GET(new Request(`http://localhost:3000/api/search/${first.searchId}?page=4`, { headers: { Cookie: cookie } }), { params: Promise.resolve({ searchId: first.searchId }) });
+      const read = await GET(new Request(`http://localhost:3333/api/search/${first.searchId}?page=4`, { headers: { Cookie: cookie } }), { params: Promise.resolve({ searchId: first.searchId }) });
       expect((await read.json()).results).toHaveLength(7); expect(provider).toHaveBeenCalledTimes(1);
-      const stranger = await GET(new Request(`http://localhost:3000/api/search/${first.searchId}?page=1`), { params: Promise.resolve({ searchId: first.searchId }) }); expect(stranger.status).toBe(410);
-      const forbidden = await POST(new Request("http://localhost:3000/api/search", { method: "POST", headers: { Origin: "https://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ query: "Rust" }) })); expect(forbidden.status).toBe(403);
+      const stranger = await GET(new Request(`http://localhost:3333/api/search/${first.searchId}?page=1`), { params: Promise.resolve({ searchId: first.searchId }) }); expect(stranger.status).toBe(410);
+      const forbidden = await POST(new Request("http://localhost:3333/api/search", { method: "POST", headers: { Origin: "https://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ query: "Rust" }) })); expect(forbidden.status).toBe(403);
       expect(provider).toHaveBeenCalledTimes(1);
-      expect((await DELETE(new Request("http://localhost:3000/api/session/data", { method: "DELETE", headers: { Origin: "http://localhost:3000", Cookie: cookie } }))).status).toBe(200);
-      const gone = await GET(new Request(`http://localhost:3000/api/search/${first.searchId}`, { headers: { Cookie: cookie } }), { params: Promise.resolve({ searchId: first.searchId }) }); expect(gone.status).toBe(410);
+      expect((await DELETE(new Request("http://localhost:3333/api/session/data", { method: "DELETE", headers: { Origin: "http://localhost:3333", Cookie: cookie } }))).status).toBe(200);
+      const gone = await GET(new Request(`http://localhost:3333/api/search/${first.searchId}`, { headers: { Cookie: cookie } }), { params: Promise.resolve({ searchId: first.searchId }) }); expect(gone.status).toBe(410);
     } finally { provider.mockRestore(); }
   });
   it("uses personal credentials only in their own session and never returns the key", async () => {

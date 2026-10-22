@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from playwright.sync_api import sync_playwright, expect
 
-BASE = os.environ.get("TEST_BASE_URL", "http://localhost:3000")
+BASE = os.environ.get("TEST_BASE_URL", "http://localhost:3333")
 OUTPUT = Path(__file__).resolve().parents[2] / ".runtime" / "test-results" / "browser"
 OUTPUT.mkdir(parents=True, exist_ok=True)
 

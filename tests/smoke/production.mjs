@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-const origin = process.env.TEST_BASE_URL || "http://localhost:3200";
+const origin = process.env.TEST_BASE_URL || "http://localhost:3333";
 const home = await fetch(origin);
 assert.equal(home.status, 200);
 assert.equal(home.headers.get("referrer-policy"), "no-referrer");

@@ -26,7 +26,7 @@ npm ci
 Copy-Item .env.example .env
 ```
 
-编辑 `.env`：将 `SESSION_SECRET` 替换为至少 32 字符的随机值，确认 `APP_ORIGIN=http://localhost:3000`。`DEEPSEEK_API_KEY` 可作为全站默认密钥，也可留空，由访客在 UI 的「设置 → 配置 API key」中保存自己的密钥。可用以下命令生成会话密钥，再保存到 `.env`（生成值只在你的终端显示）：
+编辑 `.env`：将 `SESSION_SECRET` 替换为至少 32 字符的随机值，确认 `APP_ORIGIN=http://localhost:3333`。`DEEPSEEK_API_KEY` 可作为全站默认密钥，也可留空，由访客在 UI 的「设置 → 配置 API key」中保存自己的密钥。可用以下命令生成会话密钥，再保存到 `.env`（生成值只在你的终端显示）：
 
 ```powershell
 node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
@@ -41,7 +41,7 @@ npm run control:approve -- --fresh-install
 npm run dev
 ```
 
-访问 **http://localhost:3000**。`APP_ORIGIN` 必须与浏览器访问的协议、主机及端口完全一致；若改用 `127.0.0.1` 或其他端口，也应同步修改。没有 API key 时首页和主题仍可预览，搜索提示先在设置中配置密钥，不提供虚假结果。
+访问 **http://localhost:3333**。`APP_ORIGIN` 必须与浏览器访问的协议、主机及端口完全一致；若改用 `127.0.0.1` 或其他端口，也应同步修改。没有 API key 时首页和主题仍可预览，搜索提示先在设置中配置密钥，不提供虚假结果。
 
 设置中的密码框支持保存、替换和移除个人密钥，保存本身不发起付费验证；首次搜索时校验供应商权限。401/402 会停用该个人密钥并提示修改或充值，不关闭其他访客的检索入口。更换密钥后使用独立缓存，旧密钥的迟到错误不会停用新密钥。个人密钥产生的费用计入其 DeepSeek 账户，但仍受本站统一的 QPS、匿名会话额度和每日总预算保护。
 
@@ -102,7 +102,7 @@ npm run deploy:up
 npm run control:status
 ```
 
-按上述首次安装或对账流程批准控制 Redis。应用默认仅向本机发布 3000 端口，Redis 端口也只绑定回环。参照 `ops/nginx/deepsearch.conf` 设置域名及证书，并在可信入口统一设置真实客户端 IP。日志格式不含请求查询串。构建期间不需要或注入真实密钥，运行时由 Compose 加载根目录 `.env`。部署文件集中在 `ops/docker/`，构建上下文仍是仓库根目录；可单独执行 `docker build -f ops/docker/Dockerfile -t deepsearch:p0 .`。
+按上述首次安装或对账流程批准控制 Redis。应用默认仅向本机发布 3333 端口，Redis 端口也只绑定回环。参照 `ops/nginx/deepsearch.conf` 设置域名及证书，并在可信入口统一设置真实客户端 IP。日志格式不含请求查询串。构建期间不需要或注入真实密钥，运行时由 Compose 加载根目录 `.env`。部署文件集中在 `ops/docker/`，构建上下文仍是仓库根目录；可单独执行 `docker build -f ops/docker/Dockerfile -t deepsearch:p0 .`。
 
 `GET /api/health` 不产生上游调用，只返回 `ready` 或 `unavailable`；Redis 不可用或控制实例未获批准时返回 503。未配置站点密钥不影响健康检查，访客可以在 UI 配置个人密钥。使用私密 `METRICS_TOKEN` 访问指标：
 
