@@ -33,7 +33,7 @@ export type SearchResponse = {
   hasNextPage: boolean;
   warnings: string[];
 };
-export type ErrorCode = "INVALID_QUERY" | "QUERY_TOO_LONG" | "FILTER_CONFLICT" | "INVALID_FILTER" | "INVALID_PAGE" | "RATE_LIMITED" | "UPSTREAM_UNAVAILABLE" | "SNAPSHOT_EXPIRED" | "SESSION_CLEARED" | "FORBIDDEN" | "SERVICE_UNAVAILABLE" | "API_KEY_INVALID" | "API_BALANCE_INSUFFICIENT";
+export type ErrorCode = "REQUEST_CANCELLED" | "INVALID_QUERY" | "QUERY_TOO_LONG" | "FILTER_CONFLICT" | "INVALID_FILTER" | "INVALID_PAGE" | "RATE_LIMITED" | "UPSTREAM_UNAVAILABLE" | "SNAPSHOT_EXPIRED" | "SESSION_CLEARED" | "FORBIDDEN" | "SERVICE_UNAVAILABLE" | "API_KEY_INVALID" | "API_BALANCE_INSUFFICIENT";
 export type DailyUsage = { day: string; timeZone: "Asia/Shanghai"; totalCny: number; confirmedCny: number; pendingCny: number; uncertainCny: number; attempts: number; paidSearches: number; summaries: number; fetches: number };
 export type ApiError = { error: { code: ErrorCode; message: string; retryable: boolean }; requestId: string };
 export class SearchError extends Error {

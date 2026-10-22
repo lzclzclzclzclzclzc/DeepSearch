@@ -20,6 +20,35 @@ describe("snapshot pagination", () => {
   it.each([0, -1, 1.5, 5, NaN, Infinity])("rejects invalid page %s", page => expect(() => paginate(snapshot(37), page, "r")).toThrow(expect.objectContaining({ code: "INVALID_PAGE" })));
 });
 describe("search orchestration", () => {
+  it("propagates browser cancellation to the supplier and discards late results", async () => {
+    const store = new MemoryContent(); const control = new MemoryControl(); const controller = new AbortController();
+    let entered!: () => void; let release!: () => void; let supplierSignal!: AbortSignal;
+    const started = new Promise<void>(resolve => { entered = resolve; }); const held = new Promise<void>(resolve => { release = resolve; });
+    const provider = vi.fn(async (_query: string, signal: AbortSignal) => { supplierSignal = signal; entered(); await held; return { results: evidence(), billed: true }; });
+    const work = new SearchService(store, control, provider).search({ query: "Rust" }, "s", "ip", "r", controller.signal);
+    try { await started; controller.abort(); expect(supplierSignal.aborted).toBe(true); }
+    finally { release(); await work.catch(() => {}); }
+    await expect(work).rejects.toMatchObject({ code: "REQUEST_CANCELLED" }); expect(store.snapshots.size).toBe(0); expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("does not reserve or invoke the supplier for an already cancelled request", async () => {
+    const store = new MemoryContent(); const control = new MemoryControl(); const provider = vi.fn(); const controller = new AbortController(); controller.abort();
+    await expect(new SearchService(store, control, provider).search({ query: "Rust" }, "s", "ip", "r", controller.signal)).rejects.toMatchObject({ code: "REQUEST_CANCELLED" });
+    expect(provider).not.toHaveBeenCalled(); expect(control.reserved).toBe(0); expect(store.locks.size).toBe(0);
+  });
+  it("cancels a duplicate waiting for the lease without cancelling the owner", async () => {
+    const store = new MemoryContent(); const control = new MemoryControl(); let release!: () => void; let entered!: () => void; let queued!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; }); const started = new Promise<void>(resolve => { entered = resolve; }); const waiting = new Promise<void>(resolve => { queued = resolve; });
+    let ownerSignal!: AbortSignal;
+    const provider = vi.fn(async (_query: string, signal: AbortSignal) => { ownerSignal = signal; entered(); await held; return { results: evidence(), billed: true }; });
+    const service = new SearchService(store, control, provider); const owner = service.search({ query: "Rust" }, "s", "ip", "owner"); await started;
+    const lock = store.lock.bind(store); vi.spyOn(store, "lock").mockImplementation(async (...args) => { const acquired = await lock(...args); if (!acquired) queued(); return acquired; });
+    const controller = new AbortController(); const duplicate = service.search({ query: "Rust" }, "s", "ip", "duplicate", controller.signal);
+    try {
+      await waiting; controller.abort(); await expect(duplicate).rejects.toMatchObject({ code: "REQUEST_CANCELLED" });
+      expect(ownerSignal.aborted).toBe(false); expect(store.locks.size).toBe(1); expect(control.reserved).toBe(1);
+    } finally { release(); await owner; }
+    expect(store.locks.size).toBe(0); expect(provider).toHaveBeenCalledTimes(1);
+  });
   it("coalesces duplicate requests; cached searches and page reads do not call upstream", async () => {
     const store = new MemoryContent(); const control = new MemoryControl();
     const provider = vi.fn(async () => { await new Promise(resolve => setTimeout(resolve, 30)); return { results: evidence(), billed: true }; });

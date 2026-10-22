@@ -124,6 +124,20 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     expect(await redis.hget(`ds:usage:${budgetDay()}`, "used")).toBe("10060000");
     expect(await dailyUsage()).toMatchObject({ totalCny: 10.06, confirmedCny: 10, pendingCny: 0.06, attempts: 12 });
   });
+  it("propagates HTTP search aborts through the adapter without retry or late writes", async () => {
+    const controller = new AbortController(); let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; }); let supplierAborted = false;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => { supplierAborted = true; reject(new DOMException("Aborted", "AbortError")); }); entered();
+    }));
+    try {
+      const pending = POST(new Request("http://localhost:3333/api/search", { method: "POST", signal: controller.signal, headers: { Origin: "http://localhost:3333", "Content-Type": "application/json" }, body: JSON.stringify({ query: "Rust" }) }));
+      await started; controller.abort(); const response = await pending;
+      expect(response.status).toBe(499); expect((await response.json()).error.code).toBe("REQUEST_CANCELLED");
+      expect(supplierAborted).toBe(true); expect(provider).toHaveBeenCalledTimes(1);
+      expect(await dailyUsage()).toMatchObject({ attempts: 1, uncertainCny: 0.005, pendingCny: 0 });
+      const { content } = await readyRedis(); expect(await content.keys("*:snapshot:*")).toHaveLength(0); expect(await content.keys("*:lock:*")).toHaveLength(0);
+    } finally { controller.abort(); provider.mockRestore(); }
+  });
   it("starts accounting without an approval gate or a matching legacy run ID", async () => {
     const { control: redis } = await readyRedis(); await redis.set("ds:control:approved_run_id", "old-process");
     await expect(control.reserve()).resolves.toEqual(expect.any(String));
