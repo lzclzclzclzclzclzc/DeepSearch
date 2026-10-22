@@ -120,12 +120,9 @@ export function SearchApp() {
     </header>
     <main id="main-content" className={searched ? styles.resultsMain : styles.homeMain}>
       {!searched && <section className={styles.hero} aria-label="开始搜索">
-        <div className={styles.kicker}><span className={styles.liveDot}/> 一个问题，无限可能 <span className={styles.kickerLine}/></div>
-        <h1>让好奇，<br/><span>找到方向。</span><span className={styles.headingDot}>✳</span></h1>
-        <p className={styles.heroDescription}>从灵光一闪，到清晰答案。<br className={styles.mobileBreak}/>在广阔的网络里，发现值得阅读的内容。</p>
+        <h1>让好奇，<br/><span>找到方向。</span></h1>
         {form}
         <div className={styles.suggestions}><span>试着探索</span>{examples.map(example => <button key={example} type="button" onClick={() => search(example)}>{example}<Icon name="arrow" size={14}/></button>)}</div>
-        <div className={styles.heroNote}><Icon name="globe" size={15}/><span>连接真实网页，让每一次发现都有出处。</span></div>
         <div className={styles.heroDecoration} aria-hidden="true"><div/><div/><span>OPEN A NEW PERSPECTIVE</span></div>
       </section>}
       {searched && <>
