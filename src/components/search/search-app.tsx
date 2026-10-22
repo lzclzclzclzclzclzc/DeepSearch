@@ -34,6 +34,7 @@ export function SearchApp() {
   const [query, setQuery] = useState(""); const [filters, setFilters] = useState<SearchFilters>(emptyFilters);
   const [period, setPeriod] = useState("all"); const [data, setData] = useState<SearchResponse | null>(null);
   const [error, setError] = useState<ViewError | null>(null); const [busy, setBusy] = useState(false); const [searched, setSearched] = useState(false);
+  const [searchPending, setSearchPending] = useState(false); const pendingKind = useRef<"search" | "page" | null>(null);
   const [siteOpen, setSiteOpen] = useState(false); const [siteMode, setSiteMode] = useState("include"); const [siteDraft, setSiteDraft] = useState("");
   const [customOpen, setCustomOpen] = useState(false); const [after, setAfter] = useState(""); const [before, setBefore] = useState("");
   const [notice, setNotice] = useState(""); const [clearing, setClearing] = useState(false);
@@ -46,6 +47,7 @@ export function SearchApp() {
 
   const load = useCallback(async (state: LocationState, mode: "push" | "replace" | "none", fresh = false) => {
     request.current?.abort(); const controller = new AbortController(); request.current = controller; const id = ++sequence.current;
+    pendingKind.current = state.searchId && !fresh ? "page" : "search"; setSearchPending(pendingKind.current === "search");
     setBusy(true); setError(null); setSearched(true);
     const action = () => void load(state, mode, fresh); lastAction.current = action;
     try {
@@ -64,14 +66,14 @@ export function SearchApp() {
     } catch (failure) {
       if (id !== sequence.current || controller.signal.aborted) return;
       setError({ code: "UPSTREAM_UNAVAILABLE", message: "连接中断，请检查网络后重试。", retryable: true });
-    } finally { if (id === sequence.current) setBusy(false); }
+    } finally { if (id === sequence.current) { setBusy(false); setSearchPending(false); pendingKind.current = null; } }
   }, []);
 
   useEffect(() => {
     const restore = (first: boolean) => {
       const state = fromLocation(); setQuery(state.query); setFilters(state.filters); setPeriod(state.period);
       if (state.query) void load(state, first ? "replace" : "none");
-      else { request.current?.abort(); ++sequence.current; setData(null); setError(null); setSearched(false); setBusy(false); }
+      else { request.current?.abort(); ++sequence.current; setData(null); setError(null); setSearched(false); setBusy(false); setSearchPending(false); pendingKind.current = null; }
     };
     restore(true); const pop = () => restore(false); window.addEventListener("popstate", pop);
     return () => { request.current?.abort(); window.removeEventListener("popstate", pop); };
@@ -96,11 +98,11 @@ export function SearchApp() {
     changeFilters({ ...filters, after: value === "all" ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date), before: null }, value);
   }
   function page(number: number) {
-    if (!data) return;
+    if (!data || pendingKind.current === "search" || clearing) return;
     void load({ ...applied.current, page: number, searchId: data.searchId }, "push");
   }
   function source(id: string) {
-    if (!data) return;
+    if (!data || pendingKind.current === "search" || clearing) return;
     setHighlighted(id); const number = Math.floor((Number(id.slice(1)) - 1) / 10) + 1;
     if (number !== data.page) { citationTarget.current = id; page(number); }
     else { const element = document.getElementById(`source-${id}`); element?.focus({ preventScroll: true }); element?.scrollIntoView({ block: "center" }); }
@@ -111,7 +113,7 @@ export function SearchApp() {
     catch { setNotice("暂时无法复制链接，请检查浏览器剪贴板权限。"); }
   }
   async function clear() {
-    setClearing(true); request.current?.abort(); ++sequence.current; setBusy(false);
+    setClearing(true); request.current?.abort(); ++sequence.current; setBusy(false); setSearchPending(false); pendingKind.current = null;
     try {
       const response = await fetch("/api/session/data", { method: "DELETE" });
       if (!response.ok) throw new Error("clear failed");
@@ -160,7 +162,7 @@ export function SearchApp() {
           <div className={styles.source}><span className={styles.domainIcon} aria-hidden="true">{result.domain.replace(/^www\./, "").slice(0, 1).toUpperCase()}</span><div><span className={styles.siteName}>{result.siteName}</span><span className={styles.sourcePath}>{result.domain}{result.publishedAt && <><span> · </span><time dateTime={result.publishedAt}>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(result.publishedAt))}</time></>}</span></div><span className={styles.sourceNumber}>{result.sourceId}</span></div>
           <h2><a href={result.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{result.title}<Icon name="external" size={15}/></a></h2><p className={styles.snippet}>{result.snippet || "此网页暂未提供摘要，打开来源了解更多。"}</p>
         </article>)}</div>}
-        {data && data.totalPages > 0 && <nav className={styles.pagination} aria-label="搜索结果分页"><button onClick={() => page(data.page - 1)} disabled={!data.hasPreviousPage} aria-label="上一页"><Icon name="chevron" size={16} style={{ transform: "rotate(180deg)" }}/><span>上一页</span></button><div className={styles.pageNumbers}>{Array.from({ length: data.totalPages }, (_, i) => i + 1).map(number => <button key={number} onClick={() => page(number)} aria-label={`第 ${number} 页`} aria-current={data.page === number ? "page" : undefined}>{number}</button>)}</div><span className={styles.mobilePage}>{data.page} / {data.totalPages}</span><button onClick={() => page(data.page + 1)} disabled={!data.hasNextPage} aria-label="下一页"><span>下一页</span><Icon name="chevron" size={16}/></button></nav>}
+        {data && data.totalPages > 0 && <nav className={styles.pagination} aria-label="搜索结果分页"><button onClick={() => page(data.page - 1)} disabled={searchPending || !data.hasPreviousPage} aria-label="上一页"><Icon name="chevron" size={16} style={{ transform: "rotate(180deg)" }}/><span>上一页</span></button><div className={styles.pageNumbers}>{Array.from({ length: data.totalPages }, (_, i) => i + 1).map(number => <button key={number} onClick={() => page(number)} disabled={searchPending} aria-label={`第 ${number} 页`} aria-current={data.page === number ? "page" : undefined}>{number}</button>)}</div><span className={styles.mobilePage}>{data.page} / {data.totalPages}</span><button onClick={() => page(data.page + 1)} disabled={searchPending || !data.hasNextPage} aria-label="下一页"><span>下一页</span><Icon name="chevron" size={16}/></button></nav>}
         {data && data.totalPages > 0 && <p className={styles.paginationNote}>{data.hasNextPage ? "每页 10 条 · 翻页继续浏览本次搜索结果" : "已到本次结果末页 · 试着调整关键词，发现更多"}</p>}
       </section></div>}
       <p className="sr-only" role="status" aria-live="polite">{busy ? "正在加载，请稍候。" : data ? `已显示第 ${data.page} 页，本次共 ${data.snapshotCount} 条结果。` : ""}</p>

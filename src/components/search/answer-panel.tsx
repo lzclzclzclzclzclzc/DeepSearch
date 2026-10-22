@@ -51,7 +51,7 @@ export function AnswerPanel({ searchId, disabled, onSource }: { searchId: string
     {busy && <p className={styles.status} role="status"><span/>{phase === "preparing" ? "正在整理来源…" : "正在生成有来源的总结…"}</p>}
     <div className={styles.blocks} aria-live="polite" aria-relevant="additions">
       {blocks.map((block, index) => <div key={index} className={block.notice ? styles.notice : styles.block}>
-        <p>{block.text}</p>{block.citations.map(id => { const source = sources.find(item => item.sourceId === id); return source && <button key={id} className={styles.citation} type="button" title={source.title} onClick={() => onSource(id)} aria-label={`查看来源 ${id}`}>{id}</button>; })}
+        <p>{block.text}</p>{block.citations.map(id => { const source = sources.find(item => item.sourceId === id); return source && <button key={id} className={styles.citation} type="button" title={source.title} onClick={() => onSource(id)} disabled={disabled} aria-label={`查看来源 ${id}`}>{id}</button>; })}
       </div>)}
     </div>
     {phase === "stopped" && <p className={styles.description} role="status">已停止生成，已收到的内容保留在此。</p>}

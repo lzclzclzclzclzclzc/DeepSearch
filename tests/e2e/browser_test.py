@@ -239,6 +239,26 @@ class BrowserAcceptance(unittest.TestCase):
         expect(self.page.get_by_role("heading", level=1)).to_contain_text("第 21–30 条")
         self.assertEqual(len(self.posts), 1)
 
+    def test_old_results_cannot_page_away_from_a_pending_new_search(self):
+        self.search()
+        held = []
+        self.page.route("**/api/search", lambda route: held.append(route))
+        self.page.get_by_role("searchbox", name="搜索关键词").fill("new search")
+        self.page.get_by_role("button", name="搜索", exact=True).click()
+        expect(self.page.get_by_role("article")).to_have_count(10)
+        expect(self.page.get_by_role("button", name="下一页", exact=True)).to_be_disabled()
+        self.page.get_by_role("button", name="下一页", exact=True).dispatch_event("click")
+        self.assertEqual(self.gets, [])
+        self.page.screenshot(path=str(OUTPUT / "new-search-paging-guard.png"), full_page=False)
+        self.assertTrue(held)
+        result = self.response(query="new search")
+        result["searchId"] = str(uuid.uuid4())
+        result["results"][0]["title"] = "新搜索的结果"
+        held[0].fulfill(json=result)
+        expect(self.page.get_by_role("article").first).to_contain_text("新搜索的结果")
+        expect(self.page).to_have_url(re.compile("q=new\\+search"))
+        expect(self.page.get_by_role("button", name="下一页", exact=True)).to_be_enabled()
+
     def test_keyboard_focus_and_theme_contrast(self):
         self.page.keyboard.press("Tab")
         expect(self.page.get_by_role("link", name="跳转到主要内容")).to_be_focused()
