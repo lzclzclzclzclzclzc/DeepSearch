@@ -6,6 +6,7 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { Settings } from "./settings";
 import { FilterSelect } from "./filter-select";
 import { AnswerPanel } from "./answer-panel";
+import { HomeWhale, CornerWhale } from "./whale-mascot";
 import { emptyFilters, type ApiError, type SearchFilters, type SearchResponse } from "@/shared/search";
 import styles from "./search.module.css";
 
@@ -137,7 +138,6 @@ export function SearchApp() {
         <h1>让好奇，<br/><span>找到方向。</span></h1>
         {form}
         <div className={styles.suggestions}><span>试着探索</span>{examples.map(example => <button key={example} type="button" onClick={() => search(example)}>{example}<Icon name="arrow" size={14}/></button>)}</div>
-        <div className={styles.heroDecoration} aria-hidden="true"><div/><div/><span>OPEN A NEW PERSPECTIVE</span></div>
       </section>}
       {searched && <>
         <div className={styles.toolRow}><span className={styles.activeTab}><Icon name="globe" size={17}/>网页</span><div className={styles.toolRight}><button className="text-button" onClick={share} disabled={!data}><Icon name="share" size={16}/>分享搜索</button></div></div>
@@ -166,6 +166,7 @@ export function SearchApp() {
       <p className="sr-only" role="status" aria-live="polite">{busy ? "正在加载，请稍候。" : data ? `已显示第 ${data.page} 页，本次共 ${data.snapshotCount} 条结果。` : ""}</p>
     </main>
     <footer className={styles.footer}><span className={styles.footerBrand}>DeepSearch<span>保持好奇，持续发现。</span></span><div><span className={styles.powered}>由 DeepSeek Search 提供检索</span><button onClick={clear} disabled={clearing} className="text-button"><Icon name="trash" size={14}/>{clearing ? "正在清除…" : "清除会话数据"}</button></div></footer>
+    {searched ? <CornerWhale/> : <HomeWhale/>}
     {notice && <div className={styles.toast} role="status"><Icon name="check" size={17}/>{notice}</div>}
     <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)}/>
   </div>;
