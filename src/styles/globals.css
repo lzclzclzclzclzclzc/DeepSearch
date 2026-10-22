@@ -30,6 +30,7 @@
 }
 * { box-sizing: border-box; }
 html { min-width: 320px; scrollbar-gutter: stable; }
+html:has([data-page="home"]) { scrollbar-gutter: auto; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: "Manrope", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
 button, input, select { font: inherit; }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }

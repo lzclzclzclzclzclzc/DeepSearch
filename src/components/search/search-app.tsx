@@ -127,7 +127,7 @@ export function SearchApp() {
     <button type="submit" className={styles.searchButton} aria-label="搜索" disabled={busy}><span>搜索</span><Icon name="arrow" size={19}/></button>
   </form>;
 
-  return <div className={`${styles.app} ${searched ? styles.resultsMode : styles.homeMode}`}>
+  return <div data-page={searched ? "search" : "home"} className={`${styles.app} ${searched ? styles.resultsMode : styles.homeMode}`}>
     <header className={styles.header}>
       <a href="/" className={styles.brand} aria-label="DeepSearch 首页"><BrandMark/><span>Deep<span className={styles.brandLight}>Search</span></span></a>
       {searched && <div className={styles.headerSearch}>{form}</div>}

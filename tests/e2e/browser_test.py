@@ -374,6 +374,7 @@ class BrowserAcceptance(unittest.TestCase):
         expect(home).to_be_visible()
         expect(home).to_contain_text("你要查什么呀")
         expect(home.locator("img")).to_have_js_property("naturalWidth", 640)
+        self.assertAlmostEqual(home.bounding_box()["x"] + home.bounding_box()["width"], self.page.viewport_size["width"], delta=1)
         form_right = self.page.get_by_role("searchbox").evaluate("input => input.closest('form').getBoundingClientRect().right")
         self.assertGreater(home.locator("p").bounding_box()["x"], form_right)
         self.page.screenshot(path=str(OUTPUT / "home-whale-desktop-light.png"), full_page=True)
