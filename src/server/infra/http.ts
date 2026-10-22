@@ -33,7 +33,7 @@ export async function api(request: Request, handler: (ctx: Context) => Promise<u
     // Store only a daily salted coarse network identifier, never a complete IP.
     const coarseIP = rawIP.includes(":") ? rawIP.split(":").slice(0, 4).join(":") : rawIP.split(".").slice(0, 3).join(".");
     const data = await handler({ requestId, session: digest(session), ip: digest(`${new Date().toISOString().slice(0, 10)}:${coarseIP}`) });
-    response = NextResponse.json(data);
+    response = data instanceof Response ? new NextResponse(data.body, { status: data.status, headers: data.headers }) : NextResponse.json(data);
   } catch (error) {
     const known = error instanceof SearchError ? error : new SearchError("SERVICE_UNAVAILABLE", "搜索服务暂时不可用，请稍后重试。", 503, true);
     status = known.status; code = known.code;

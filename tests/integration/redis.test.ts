@@ -12,6 +12,10 @@ import { GET as usageToday } from "@/app/api/usage/today/route";
 import { createSessionCookie, sessionCookieName } from "@/server/infra/session";
 import { DELETE } from "@/app/api/session/data/route";
 import { saveCredential, resolveCredential, credentialStatus, rejectCredential } from "@/server/infra/credentials";
+import { POST as answerPost, GET as answerGet } from "@/app/api/search/[searchId]/answer/route";
+import { digest } from "@/server/infra/config";
+import { readSSE } from "@/shared/sse";
+import { AnswerStore, acquireSummarySlot } from "@/server/answer/storage";
 
 describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operations (isolated test ports)", () => {
   const store = new RedisContentStore(); const control = new RedisCostControl();
@@ -22,6 +26,97 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     await content.flushdb(); await redis.flushdb();
   });
   afterAll(() => { const redis = getRedis(); redis.content.disconnect(); redis.control.disconnect(); });
+  async function seedAnswer() {
+    const cookie = createSessionCookie(); const session = digest(cookie.id); const version = await store.version(session);
+    const snapshot: Snapshot = { id: randomUUID(), query: "Rust", effectiveQuery: "Rust", filters: emptyFilters(), results: evidence(12).map(row => ({ ...row, summary: "这是用于核对的网页证据，介绍异步编程中的任务与运行时。".repeat(8) })), fetchedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1800000).toISOString(), cache: "miss", warnings: [] };
+    await store.commit(session, version, "answer-fixture", snapshot);
+    const headers = { Origin: "http://localhost:3333", Cookie: `${sessionCookieName}=${cookie.value}`, "Content-Type": "application/json" };
+    const params = { params: Promise.resolve({ searchId: snapshot.id }) };
+    const request = (body: unknown = { requestId: randomUUID() }, signal?: AbortSignal) => new Request(`http://localhost:3333/api/search/${snapshot.id}/answer`, { method: "POST", headers, body: JSON.stringify(body), signal });
+    return { session, version, snapshot, headers, params, request };
+  }
+  const modelResponse = (text = "这是有证据支持的总结[S01]。\n\n另一段结论[S02]。") => new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, prompt_cache_hit_tokens: 0 } })}\n\ndata: [DONE]\n\n`);
+  async function answerEvents(response: Response) { const events = []; for await (const event of readSSE(response.body!)) events.push({ event: event.event, data: JSON.parse(event.data) }); return events; }
+  it("streams cited answers, rejects foreign evidence and reuses the same answer without billing again", async () => {
+    const fixture = await seedAnswer();
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => modelResponse("合法结论[S01]。\n\n幻觉来源[S99]。\n\n没有引用的内容"));
+    try {
+      const requestId = randomUUID(); const first = await answerPost(fixture.request({ requestId }), fixture.params);
+      expect(first.headers.get("content-type")).toContain("text/event-stream"); const events = await answerEvents(first);
+      const blocks = events.filter(row => row.event === "answer.block").map(row => row.data);
+      expect(blocks).toHaveLength(2); expect(blocks[0].citations).toEqual(["S01"]); expect(blocks[1].notice).toBe(true);
+      expect(JSON.stringify(blocks)).not.toContain("幻觉来源"); expect(events.at(-1)?.event).toBe("done");
+      const second = await answerEvents(await answerPost(fixture.request({ requestId }), fixture.params)); expect(second[0].data.phase).toBe("cached"); expect(provider).toHaveBeenCalledTimes(1);
+      const read = await answerGet(new Request(fixture.request().url, { headers: fixture.headers }), fixture.params); expect((await read.json()).answer.blocks).toEqual(blocks);
+      expect((await answerGet(new Request(fixture.request().url), fixture.params)).status).toBe(410);
+      expect((await answerPost(new Request(fixture.request().url, { method: "POST", headers: { ...fixture.headers, Origin: "https://evil.example" }, body: JSON.stringify({ requestId }) }), fixture.params)).status).toBe(403);
+      expect((await answerPost(fixture.request({ requestId, evidence: "invented" }), fixture.params)).status).toBe(400);
+      expect(await dailyUsage()).toMatchObject({ confirmedCny: 0.00036, paidSearches: 0, summaries: 1, pendingCny: 0 });
+    } finally { provider.mockRestore(); }
+  });
+  it("rejects stale snapshots and avoids the model entirely when no evidence exists", async () => {
+    const fixture = await seedAnswer(); const provider = vi.spyOn(globalThis, "fetch");
+    try {
+      fixture.snapshot.fetchedAt = "2000-01-01T00:00:00Z"; await store.commit(fixture.session, fixture.version, "x", fixture.snapshot);
+      expect((await answerPost(fixture.request(), fixture.params)).status).toBe(410);
+      fixture.snapshot.fetchedAt = new Date().toISOString(); fixture.snapshot.results = []; await store.commit(fixture.session, fixture.version, "x", fixture.snapshot);
+      const events = await answerEvents(await answerPost(fixture.request(), fixture.params)); expect(events.find(row => row.event === "answer.block")?.data.notice).toBe(true);
+      expect(provider).not.toHaveBeenCalled(); expect((await dailyUsage()).attempts).toBe(0);
+    } finally { provider.mockRestore(); }
+  });
+  it("supplements at most three existing sources with at most two concurrent fetches", async () => {
+    const fixture = await seedAnswer(); fixture.snapshot.results = fixture.snapshot.results.map((row, i) => ({ ...row, domain: `site${i}.example.com`, url: `https://site${i}.example.com/article`, summary: "" }));
+    await store.commit(fixture.session, fixture.version, "x", fixture.snapshot); let active = 0; let maxActive = 0;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      if (String(url).endsWith("/tools/fetch")) { active++; maxActive = Math.max(active, maxActive); await new Promise(resolve => setTimeout(resolve, 20)); active--; return Response.json({ title: "原网页", content: "已获取的真实证据材料。".repeat(40) }); }
+      return modelResponse();
+    });
+    try {
+      const events = await answerEvents(await answerPost(fixture.request(), fixture.params)); expect(events.at(-1)?.event).toBe("done");
+      expect(provider.mock.calls.filter(call => String(call[0]).endsWith("/tools/fetch"))).toHaveLength(3); expect(maxActive).toBeLessThanOrEqual(2);
+      expect((await dailyUsage()).fetches).toBe(3); expect((await dailyUsage()).summaries).toBe(1);
+      for (const call of provider.mock.calls.filter(call => String(call[0]).endsWith("/tools/fetch"))) expect(fixture.snapshot.results.map(row => row.url)).toContain(JSON.parse(String(call[1]?.body)).url);
+    } finally { provider.mockRestore(); }
+  });
+  it("coalesces active requests and propagates cancellation without saving partial answers", async () => {
+    const fixture = await seedAnswer(); const controller = new AbortController(); const requestId = randomUUID(); let began!: () => void;
+    const started = new Promise<void>(resolve => { began = resolve; }); let supplierAborted = false;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => new Response(new ReadableStream({ start(output) {
+      output.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "正在生成[S01]。\n\n" } }] })}\n\n`));
+      init?.signal?.addEventListener("abort", () => { supplierAborted = true; output.error(new DOMException("Aborted", "AbortError")); }); began();
+    } })));
+    try {
+      const first = await answerPost(fixture.request({ requestId }, controller.signal), fixture.params); await started;
+      expect((await answerPost(fixture.request(), fixture.params)).status).toBe(409);
+      controller.abort(); const events = await answerEvents(first); expect(events.at(-1)?.event).toBe("error"); expect(supplierAborted).toBe(true);
+      expect(provider).toHaveBeenCalledTimes(1); const { control: redis } = await readyRedis(); expect(await redis.zcard("ds:summary:active")).toBe(0);
+      const read = await answerGet(new Request(fixture.request().url, { headers: fixture.headers }), fixture.params); expect((await read.json()).answer).toBeNull();
+      expect((await dailyUsage()).uncertainCny).toBe(0.032);
+      expect((await answerPost(fixture.request({ requestId }), fixture.params)).status).toBe(409); expect(provider).toHaveBeenCalledTimes(1);
+    } finally { provider.mockRestore(); }
+  });
+  it("prevents late summary writes after session clear", async () => {
+    const fixture = await seedAnswer(); const answers = new AnswerStore(fixture.session, fixture.version, fixture.snapshot.id, fixture.snapshot.expiresAt);
+    await store.clear(fixture.session);
+    await expect(answers.write("answer:test", { text: "late" })).rejects.toMatchObject({ code: "SESSION_CLEARED" });
+  });
+  it("bounds the shared summary queue and releases acquired leases", async () => {
+    const { control: redis } = await readyRedis();
+    const release = await acquireSummarySlot(new AbortController().signal); expect(await redis.zcard("ds:summary:active")).toBe(1); await release();
+    for (let i = 0; i < 20; i++) await redis.zadd("ds:summary:active", Date.now() + 5000, `active-${i}`);
+    for (let i = 0; i < 10; i++) await redis.zadd("ds:summary:queue", Date.now() + 5000, `waiting-${i}`);
+    await expect(acquireSummarySlot(new AbortController().signal)).rejects.toMatchObject({ code: "RATE_LIMITED", status: 429 });
+    expect(await redis.zcard("ds:summary:active")).toBe(20); expect(await redis.zcard("ds:summary:queue")).toBe(10);
+  });
+  it("invalid model credentials are free and do not invalidate another session", async () => {
+    const fixture = await seedAnswer(); await saveCredential(fixture.session, { apiKey: "invalid-summary-personal-key" });
+    const provider = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}", { status: 401 }));
+    try {
+      const events = await answerEvents(await answerPost(fixture.request(), fixture.params)); expect(events.at(-1)?.data.code).toBe("API_KEY_INVALID");
+      expect((await credentialStatus(fixture.session)).state).toBe("invalid"); expect((await credentialStatus("other")).source).toBe("server");
+      expect((await dailyUsage()).totalCny).toBe(0);
+    } finally { provider.mockRestore(); }
+  });
   it("tracks concurrent calls without a daily spending cap", async () => {
     const { control: redis } = await readyRedis(); await redis.hset(`ds:usage:${budgetDay()}`, "used", "10000000", "confirmed", "10000000");
     const results = await Promise.allSettled(Array.from({ length: 12 }, () => new RedisCostControl().reserve()));
