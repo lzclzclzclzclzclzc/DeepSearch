@@ -81,6 +81,8 @@ class BrowserAcceptance(unittest.TestCase):
             elif request.method == "DELETE":
                 self.key_status = {"configured": False, "source": "none", "state": "saved"}
             route.fulfill(json=self.key_status)
+        elif path == "/api/usage/today":
+            route.fulfill(json={"day": "2026-10-22", "timeZone": "Asia/Shanghai", "totalCny": 10.015, "confirmedCny": 10, "pendingCny": 0.005, "uncertainCny": 0.01, "attempts": 2003, "paidSearches": 2000})
         else:
             route.fulfill(status=503, json={"status": "unavailable"})
 
@@ -241,6 +243,12 @@ class BrowserAcceptance(unittest.TestCase):
         expect(modal).to_be_visible()
         expect(modal).to_contain_text("配置 API key")
         expect(modal).to_contain_text("尚未配置密钥")
+        usage = modal.get_by_test_id("today-spending")
+        expect(usage).to_contain_text("10.0150")
+        expect(usage).to_contain_text("本站全部调用")
+        expect(usage).to_contain_text("2003")
+        modal.get_by_role("button", name="刷新今日开销").click()
+        expect(usage).to_contain_text("10.0150")
 
         field = modal.get_by_label("DeepSeek API key", exact=True)
         self.assertEqual(field.get_attribute("type"), "password")

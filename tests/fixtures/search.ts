@@ -20,7 +20,7 @@ export class MemoryContent implements ContentStore {
 export class MemoryControl implements CostControl {
   reserved = 0; settled: string[] = []; tripped: number[] = []; blocked = false;
   async rate() {}
-  async reserve() { if (this.blocked) throw new SearchError("BUDGET_EXCEEDED", "exhausted", 429); return `reservation-${++this.reserved}`; }
+  async reserve() { if (this.blocked) throw new SearchError("SERVICE_UNAVAILABLE", "accounting unavailable", 503); return `reservation-${++this.reserved}`; }
   async settle(id: string, state: string) { this.settled.push(`${id}:${state}`); }
   async trip(status: number) { this.tripped.push(status); }
 }

@@ -1,13 +1,15 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { readyRedis, getRedis } from "@/server/infra/redis";
-import { RedisCostControl, budgetDay } from "@/server/infra/control";
+import { RedisCostControl, budgetDay, dailyUsage } from "@/server/infra/control";
 import { RedisContentStore, type Snapshot } from "@/server/search/storage";
 import { SearchService } from "@/server/search/service";
 import { emptyFilters } from "@/shared/search";
 import { evidence } from "../fixtures/search";
 import { POST } from "@/app/api/search/route";
 import { GET } from "@/app/api/search/[searchId]/route";
+import { GET as usageToday } from "@/app/api/usage/today/route";
+import { createSessionCookie, sessionCookieName } from "@/server/infra/session";
 import { DELETE } from "@/app/api/session/data/route";
 import { saveCredential, resolveCredential, credentialStatus, rejectCredential } from "@/server/infra/credentials";
 
@@ -15,27 +17,43 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
   const store = new RedisContentStore(); const control = new RedisCostControl();
   beforeEach(async () => {
     // Test configuration is fixed to authenticated, dedicated instances. Never use deployment URLs here.
-    const { content, control: redis, controlRunId } = await readyRedis();
+    const { content, control: redis } = await readyRedis();
     if (content.options.port !== 16379 || redis.options.port !== 16380 || redis.options.password !== "deepsearch-test") throw new Error("Dedicated test Redis required");
-    await content.flushdb(); await redis.flushdb(); await redis.set("ds:control:approved_run_id", controlRunId);
+    await content.flushdb(); await redis.flushdb();
   });
   afterAll(() => { const redis = getRedis(); redis.content.disconnect(); redis.control.disconnect(); });
-  it("makes atomic budget reservations under contention across instances", async () => {
+  it("tracks concurrent calls without a daily spending cap", async () => {
+    const { control: redis } = await readyRedis(); await redis.hset(`ds:usage:${budgetDay()}`, "used", "10000000", "confirmed", "10000000");
     const results = await Promise.allSettled(Array.from({ length: 12 }, () => new RedisCostControl().reserve()));
-    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(2);
-    expect(results.filter(r => r.status === "rejected")).toHaveLength(10);
-    const { control: redis } = await readyRedis(); expect(await redis.hget(`ds:usage:${budgetDay()}`, "used")).toBe("10000");
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(12);
+    expect(await redis.hget(`ds:usage:${budgetDay()}`, "used")).toBe("10060000");
+    expect(await dailyUsage()).toMatchObject({ totalCny: 10.06, confirmedCny: 10, pendingCny: 0.06, attempts: 12 });
   });
-  it("closes the paid gate after a control restart identity mismatch", async () => {
+  it("starts accounting without an approval gate or a matching legacy run ID", async () => {
     const { control: redis } = await readyRedis(); await redis.set("ds:control:approved_run_id", "old-process");
-    await expect(control.reserve()).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    await expect(control.reserve()).resolves.toEqual(expect.any(String));
   });
   it("settles idempotently and retains uncertain usage", async () => {
     const a = await control.reserve(); await control.settle(a, "free"); await control.settle(a, "free");
     const b = await control.reserve(); await control.settle(b, "uncertain");
     const c = await control.reserve(); await control.settle(c, "billed");
-    await expect(control.reserve()).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" });
     const { control: redis } = await readyRedis(); expect(await redis.hgetall(`ds:usage:${budgetDay()}`)).toMatchObject({ used: "10000", reserved: "0", uncertain: "5000", confirmed: "5000" });
+    expect(await dailyUsage()).toMatchObject({ totalCny: 0.01, confirmedCny: 0.005, uncertainCny: 0.005, pendingCny: 0, attempts: 3, paidSearches: 1 });
+  });
+  it("returns today's usage read-only and requires a valid session", async () => {
+    const { control: redis } = await readyRedis();
+    await redis.hset("ds:usage:2000-01-01", "used", "999999");
+    const id = await control.reserve(); await control.settle(id, "billed");
+    const before = await redis.hgetall(`ds:usage:${budgetDay()}`);
+    const session = createSessionCookie();
+    const read = () => usageToday(new Request("http://localhost:3333/api/usage/today", { headers: { Cookie: `${sessionCookieName}=${session.value}` } }));
+    for (let i = 0; i < 2; i++) {
+      const response = await read(); expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.json()).toMatchObject({ day: budgetDay(), timeZone: "Asia/Shanghai", totalCny: 0.005, attempts: 1, paidSearches: 1 });
+    }
+    expect(await redis.hgetall(`ds:usage:${budgetDay()}`)).toEqual(before);
+    expect((await usageToday(new Request("http://localhost:3333/api/usage/today"))).status).toBe(410);
   });
   it("does not release another request's lease", async () => {
     await store.version("s"); expect(await store.lock("s", "1", "key", "owner")).toBe(true);
@@ -59,7 +77,7 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     expect((await content.keys("ds:*" )).some(key => key.includes("Rust"))).toBe(false);
     expect(JSON.stringify(await redis.hgetall(`ds:usage:${budgetDay()}`))).not.toContain("Rust");
   });
-  it("content clear leaves the abuse quota and paid budget untouched", async () => {
+  it("content clear leaves the abuse quota and cost accounting untouched", async () => {
     await store.version("s"); await control.rate("s", "ip"); await control.reserve(); await store.clear("s");
     const { control: redis } = await readyRedis(); expect(await redis.hget(`ds:usage:${budgetDay()}`, "reserved")).toBe("5000");
     expect(await redis.get(`ds:rate:session:s:${Math.floor(Date.now() / 60000)}`)).toBe("1");
@@ -99,10 +117,10 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     try { await expect(new SearchService(store, control).search({ query: "Rust" }, "s", "ip", "r")).rejects.toMatchObject({ code: "API_KEY_INVALID" }); }
     finally { provider.mockRestore(); }
     expect((await credentialStatus("s")).state).toBe("invalid");
-    const { control: redis } = await readyRedis(); expect(await redis.exists("ds:control:circuit")).toBe(0);
+    const { control: redis } = await readyRedis(); expect(await redis.keys("ds:control:circuit:*")).toHaveLength(0);
     await saveCredential("s", { apiKey: "new-personal-key" }); await rejectCredential("s", first.scope, 401);
     expect((await credentialStatus("s")).state).toBe("saved");
-    await redis.set("ds:control:circuit", "401");
+    await control.trip(401, (await resolveCredential("stranger")).scope);
     const other = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ results: [] })));
     try { expect((await new SearchService(store, control).search({ query: "Rust" }, "s", "ip", "r")).results).toHaveLength(0); }
     finally { other.mockRestore(); }

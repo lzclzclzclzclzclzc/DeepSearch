@@ -18,4 +18,14 @@
 .error { color: var(--error); background: var(--error-bg); border-radius: 8px; padding: 10px; font-size: 12px; }
 .notice { color: var(--accent); font-size: 12px; }
 .getKey { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 25px 0 0; min-height: 44px; border-top: 1px solid var(--border); padding-top: 15px; font-size: 11px; }
+.usageSection { margin-top: 25px; padding-top: 18px; border-top: 1px solid var(--border); }
+.usageHeading { display: flex; align-items: center; gap: 10px; }
+.usageHeading h3 { margin: 0; font-size: 16px; font-weight: 600; }
+.usageHeading > button { margin-left: auto; }
+.usageDate { font-size: 10px; color: var(--text-muted); margin: 7px 0; }
+.usageTotal { font-size: 29px; font-weight: 600; margin: 9px 0 17px; font-variant-numeric: tabular-nums; }
+.usageTotal > span { color: var(--text-muted); font-size: 10px; font-weight: 400; margin-left: 9px; }
+.usageDetails { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+.usageDetails dt { font-size: 10px; color: var(--text-muted); }
+.usageDetails dd { font-size: 12px; margin: 4px 0 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 @media (max-width: 480px) { .content { padding: 23px; }.heading { margin-bottom: 23px; } }

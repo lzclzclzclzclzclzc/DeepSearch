@@ -59,7 +59,7 @@ export class SearchService {
       for (let attempt = 0; attempt < 2; attempt++) {
         if (controller.signal.aborted || Date.now() - started >= config.SEARCH_DEADLINE_MS) break;
         if (await this.content.version(session) !== version) throw new SearchError("SESSION_CLEARED", "本次会话数据已清除，请重新搜索。", 409);
-        const reservation = await this.control.reserve(credential.source === "personal" ? credential.scope : "default");
+        const reservation = await this.control.reserve(credential.scope);
         const attemptStart = Date.now();
         let result: Awaited<ReturnType<typeof requestSearch>>;
         try { result = await this.provider(input.effectiveQuery, controller.signal, credential.key); }
@@ -72,7 +72,7 @@ export class SearchService {
               await rejectCredential(session, credential.scope, failure.status);
               throw new SearchError(failure.status === 401 ? "API_KEY_INVALID" : "API_BALANCE_INSUFFICIENT", failure.status === 401 ? "API key 无效，请在设置中更新。" : "API key 的账户余额不足，请充值后在设置中重新保存。", failure.status);
             }
-            await this.control.trip(failure.status);
+            await this.control.trip(failure.status, credential.scope);
           }
           if (failure?.retryable && attempt === 0 && !controller.signal.aborted && Date.now() - started + failure.retryDelay + 250 < config.SEARCH_DEADLINE_MS) {
             await sleep(failure.retryDelay, undefined, { signal: controller.signal }).catch(() => {}); continue;

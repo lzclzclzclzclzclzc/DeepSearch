@@ -16,8 +16,7 @@
     "deploy:up": "docker compose -f ops/docker/compose.yaml --profile app up -d --build",
     "test:infra:up": "docker compose -f ops/docker/compose.test.yaml up -d",
     "test:infra:down": "docker compose -f ops/docker/compose.test.yaml down",
-    "control:status": "node --env-file-if-exists=.env ops/scripts/control.mjs status",
-    "control:approve": "node --env-file-if-exists=.env ops/scripts/control.mjs approve"
+    "control:status": "node --env-file-if-exists=.env ops/scripts/control.mjs status"
   },
   "dependencies": {
     "@fontsource/manrope": "5.3.0",

@@ -10,7 +10,6 @@ const schema = z.object({
   APP_ORIGIN: z.string().url().default("http://localhost:3333"),
   REDIS_CONTENT_URL: z.string().url().default("redis://127.0.0.1:6381"),
   REDIS_CONTROL_URL: z.string().url().default("redis://127.0.0.1:6380"),
-  DAILY_BUDGET_CNY: z.coerce.number().nonnegative().max(100000).default(1),
   SEARCH_COST_MICROYUAN: positive(5000),
   SEARCH_QPS: positive(80),
   SESSION_SEARCHES_PER_MINUTE: positive(20),

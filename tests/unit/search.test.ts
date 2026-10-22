@@ -54,9 +54,9 @@ describe("search orchestration", () => {
     await expect(new SearchService(new MemoryContent(), control, provider).search({ query: "Rust" }, "s", "ip", "r")).rejects.toThrow();
     expect(provider).toHaveBeenCalledTimes(2); expect(control.reserved).toBe(2); expect(control.settled).toEqual(["reservation-1:uncertain", "reservation-2:uncertain"]);
   });
-  it("does not call upstream when budget or control checks fail", async () => {
+  it("does not call upstream when accounting storage fails", async () => {
     const control = new MemoryControl(); control.blocked = true; const provider = vi.fn();
-    await expect(new SearchService(new MemoryContent(), control, provider).search({ query: "Rust" }, "s", "ip", "r")).rejects.toMatchObject({ code: "BUDGET_EXCEEDED" }); expect(provider).not.toHaveBeenCalled();
+    await expect(new SearchService(new MemoryContent(), control, provider).search({ query: "Rust" }, "s", "ip", "r")).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" }); expect(provider).not.toHaveBeenCalled();
   });
   it("uses stale ordinary cache only after upstream failure and preserves fetchedAt", async () => {
     const store = new MemoryContent(); const provider = vi.fn().mockResolvedValueOnce({ results: evidence(), billed: true }).mockRejectedValue(new UpstreamFailure(500, 0, false));

@@ -9,6 +9,5 @@ export default defineConfig({
     DEEPSEEK_API_KEY: "test-key-never-sent-to-provider",
     REDIS_CONTENT_URL: `redis://:deepsearch-test@${process.env.TEST_REDIS_HOST || "127.0.0.1"}:16379`,
     REDIS_CONTROL_URL: `redis://:deepsearch-test@${process.env.TEST_REDIS_HOST || "127.0.0.1"}:16380`,
-    DAILY_BUDGET_CNY: "0.01",
   } },
 });
