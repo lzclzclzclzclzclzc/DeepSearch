@@ -16,6 +16,7 @@ import { POST as answerPost, GET as answerGet } from "@/app/api/search/[searchId
 import { digest } from "@/server/infra/config";
 import { readSSE } from "@/shared/sse";
 import { AnswerStore, acquireSummarySlot } from "@/server/answer/storage";
+import { api } from "@/server/infra/http";
 
 describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operations (isolated test ports)", () => {
   const store = new RedisContentStore(); const control = new RedisCostControl();
@@ -123,6 +124,21 @@ describe.skipIf(process.env.RUN_REDIS_TESTS !== "1")("real Redis atomic operatio
     expect(results.filter(r => r.status === "fulfilled")).toHaveLength(12);
     expect(await redis.hget(`ds:usage:${budgetDay()}`, "used")).toBe("10060000");
     expect(await dailyUsage()).toMatchObject({ totalCny: 10.06, confirmedCny: 10, pendingCny: 0.06, attempts: 12 });
+  });
+  it("does not pool visitors into one IP quota when no client IP is trusted", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+    const visitors = Array.from({ length: 4 }, () => createSessionCookie());
+    const call = (visitor: typeof visitors[number]) => api(new Request("http://localhost:3333/api/test-rate", { headers: { Cookie: `${sessionCookieName}=${visitor.value}`, "X-Real-IP": "203.0.113.1" } }), async ctx => { await control.rate(ctx.session, ctx.ip); return { ok: true }; }, { event: "test_rate" });
+    for (let index = 0; index < 64; index++) expect((await call(visitors[index % 4])).status).toBe(200);
+    for (let index = 0; index < 4; index++) expect((await call(visitors[0])).status).toBe(200);
+    expect((await call(visitors[0])).status).toBe(429);
+    const { control: redis } = await readyRedis(); expect(await redis.keys("ds:rate:ip:*")).toHaveLength(0);
+    } finally { log.mockRestore(); }
+  });
+  it("still enforces a known client network quota across different sessions", async () => {
+    for (let index = 0; index < 60; index++) await control.rate(`visitor-${index % 4}`, "trusted-network");
+    await expect(control.rate("another-visitor", "trusted-network")).rejects.toMatchObject({ code: "RATE_LIMITED" });
   });
   it("propagates HTTP search aborts through the adapter without retry or late writes", async () => {
     const controller = new AbortController(); let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; }); let supplierAborted = false;

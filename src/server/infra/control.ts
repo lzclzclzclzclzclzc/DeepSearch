@@ -4,20 +4,21 @@ import { getConfig } from "./config";
 import { infrastructure, readyRedis } from "./redis";
 
 export interface CostControl {
-  rate(session: string, ip: string): Promise<void>;
+  rate(session: string, ip: string | null): Promise<void>;
   reserve(circuit?: string, kind?: "search" | "fetch" | "model", estimate?: number): Promise<string>;
   settle(id: string, state: "billed" | "free" | "uncertain", actual?: number): Promise<void>;
   trip(status: number, circuit?: string): Promise<void>;
 }
 export const budgetDay = () => new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 export class RedisCostControl implements CostControl {
-  async rate(session: string, ip: string) { return infrastructure(async () => {
+  async rate(session: string, ip: string | null) { return infrastructure(async () => {
     const { control } = await readyRedis(); const config = getConfig(); const minute = Math.floor(Date.now() / 60000);
     const result = await control.eval(`
       local a = redis.call('INCR', KEYS[1]); if a == 1 then redis.call('EXPIRE', KEYS[1], 120) end
-      local b = redis.call('INCR', KEYS[2]); if b == 1 then redis.call('EXPIRE', KEYS[2], 120) end
+      local b = 0
+      if #KEYS > 1 then b = redis.call('INCR', KEYS[2]); if b == 1 then redis.call('EXPIRE', KEYS[2], 120) end end
       if a > tonumber(ARGV[1]) or b > tonumber(ARGV[2]) then return 0 end return 1
-    `, 2, `ds:rate:session:${session}:${minute}`, `ds:rate:ip:${ip}:${minute}`, config.SESSION_SEARCHES_PER_MINUTE, config.IP_SEARCHES_PER_MINUTE);
+    `, ip === null ? 1 : 2, `ds:rate:session:${session}:${minute}`, ...(ip === null ? [] : [`ds:rate:ip:${ip}:${minute}`]), config.SESSION_SEARCHES_PER_MINUTE, config.IP_SEARCHES_PER_MINUTE);
     if (result !== 1) throw new SearchError("RATE_LIMITED", "搜索过于频繁，请稍后再试。", 429, true, 60 - Math.floor(Date.now() / 1000) % 60);
   }); }
   async reserve(circuit = "default", kind: "search" | "fetch" | "model" = "search", estimate?: number) { return infrastructure(async () => {

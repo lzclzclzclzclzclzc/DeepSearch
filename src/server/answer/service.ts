@@ -72,7 +72,7 @@ function replay(answer: Answer) {
   } }), { headers: streamHeaders });
 }
 const streamHeaders = { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "private, no-store", "X-Accel-Buffering": "no" };
-export async function generateAnswer(session: string, ip: string, searchId: string, raw: unknown, requestSignal: AbortSignal) {
+export async function generateAnswer(session: string, ip: string | null, searchId: string, raw: unknown, requestSignal: AbortSignal) {
   const input = inputSchema.safeParse(raw);
   if (!input.success) throw new SearchError("INVALID_QUERY", "总结请求无效，请重新点击生成。", 400);
   const { store, key, snapshot, credential } = await context(session, searchId);

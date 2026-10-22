@@ -58,4 +58,6 @@ npm run dev
 
 对外部署时，配置 HTTPS 域名并同步更新 `APP_ORIGIN`，反向代理示例见 [ops/nginx/deepsearch.conf](ops/nginx/deepsearch.conf)。`.env` 不纳入版本管理，请保管好其中的密钥。
 
+默认按访客会话限流。需要按客户端网络限流时，仅在应用只能通过可信反向代理访问、且代理会覆盖 `X-Real-IP` 的情况下启用 `TRUST_PROXY=true`。
+
 AI 总结仅手动触发，可能产生模型及补读网页的费用；设置中的今日开销一并统计。默认模型费率采用高峰单价保守估算，可通过 `.env.example` 中的 `SUMMARY_*_PRICE` 按所用模型调整，实际费用以供应商账单为准。

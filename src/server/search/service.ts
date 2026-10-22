@@ -20,7 +20,7 @@ export function paginate(snapshot: Snapshot, page: number, requestId: string): S
 const tasks = new Map<string, Set<AbortController>>();
 export class SearchService {
   constructor(private content: ContentStore, private control: CostControl, private provider = requestSearch) {}
-  async search(raw: unknown, session: string, ip: string, requestId: string, requestSignal?: AbortSignal): Promise<SearchResponse> {
+  async search(raw: unknown, session: string, ip: string | null, requestId: string, requestSignal?: AbortSignal): Promise<SearchResponse> {
     const input = compileQuery(raw); const config = getConfig(); const started = Date.now();
     const controller = new AbortController();
     const signal = requestSignal ? AbortSignal.any([controller.signal, requestSignal]) : controller.signal;

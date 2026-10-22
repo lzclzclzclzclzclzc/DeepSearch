@@ -4,8 +4,9 @@ import { SearchError, type ApiError } from "@/shared/search";
 import { digest, getConfig } from "./config";
 import { recordRequest } from "./metrics";
 import { createSessionCookie, sessionCookieName, verifySession } from "./session";
+import { clientNetwork } from "./network";
 
-type Context = { requestId: string; session: string; ip: string };
+type Context = { requestId: string; session: string; ip: string | null };
 function readSession(request: Request): string | null {
   const cookie = request.headers.get("cookie")?.split(";").map(v => v.trim()).find(v => v.startsWith(`${sessionCookieName}=`))?.slice(sessionCookieName.length + 1);
   return verifySession(cookie);
@@ -29,10 +30,9 @@ export async function api(request: Request, handler: (ctx: Context) => Promise<u
     let session = readSession(request);
     if (!session && options.createSession) { fresh = createSessionCookie(); session = fresh.id; }
     if (!session) throw new SearchError("SNAPSHOT_EXPIRED", "本次搜索已过期或不可访问，请重新搜索。", 410);
-    const rawIP = getConfig().TRUST_PROXY === "true" ? request.headers.get("x-real-ip") ?? "untrusted" : "untrusted";
+    const coarseIP = clientNetwork(request, getConfig().TRUST_PROXY === "true");
     // Store only a daily salted coarse network identifier, never a complete IP.
-    const coarseIP = rawIP.includes(":") ? rawIP.split(":").slice(0, 4).join(":") : rawIP.split(".").slice(0, 3).join(".");
-    const data = await handler({ requestId, session: digest(session), ip: digest(`${new Date().toISOString().slice(0, 10)}:${coarseIP}`) });
+    const data = await handler({ requestId, session: digest(session), ip: coarseIP === null ? null : digest(`${new Date().toISOString().slice(0, 10)}:${coarseIP}`) });
     response = data instanceof Response ? new NextResponse(data.body, { status: data.status, headers: data.headers }) : NextResponse.json(data);
   } catch (error) {
     const known = error instanceof SearchError ? error : new SearchError("SERVICE_UNAVAILABLE", "搜索服务暂时不可用，请稍后重试。", 503, true);
