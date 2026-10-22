@@ -1,0 +1,12 @@
+name: deepsearch-test
+services:
+  content:
+    image: redis:7.4.9-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "deepsearch-test", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:16379:6379"]
+    tmpfs: ["/data"]
+  control:
+    image: redis:7.4.9-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "yes", "--appendfsync", "always", "--requirepass", "deepsearch-test", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:16380:6379"]
+    tmpfs: ["/data"]

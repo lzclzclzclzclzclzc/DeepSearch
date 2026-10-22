@@ -1,0 +1,44 @@
+name: deepsearch
+services:
+  redis-content:
+    image: redis:7.4.9-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6379:6379"]
+    tmpfs: ["/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    restart: unless-stopped
+  redis-control:
+    image: redis:7.4.9-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--save", "", "--maxmemory", "128mb", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6380:6379"]
+    volumes: ["control-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+    restart: unless-stopped
+  app:
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile
+    profiles: ["app"]
+    env_file: ../../.env
+    environment:
+      NODE_ENV: production
+      REDIS_CONTENT_URL: redis://redis-content:6379
+      REDIS_CONTROL_URL: redis://redis-control:6379
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on:
+      redis-content: { condition: service_healthy }
+      redis-control: { condition: service_healthy }
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: ["ALL"]
+volumes:
+  control-data:
