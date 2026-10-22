@@ -4,8 +4,7 @@ import Image from "next/image";
 import styles from "./whale-mascot.module.css";
 
 export function HomeWhale() {
-  return <aside className={styles.home} aria-label="鲸鱼娘的问候" data-testid="home-whale">
-    <p className={styles.bubble}>你要查什么呀</p>
+  return <aside className={styles.home} aria-hidden="true" data-testid="home-whale">
     <Image src="/brand/whale-girl-peek.webp" width={640} height={1045} alt="" aria-hidden="true" draggable={false} unoptimized/>
   </aside>;
 }
