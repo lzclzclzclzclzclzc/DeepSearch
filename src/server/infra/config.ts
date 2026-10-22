@@ -8,7 +8,7 @@ const schema = z.object({
   DEEPSEEK_API_KEY: z.string().default(""),
   SESSION_SECRET: z.string().default(""),
   APP_ORIGIN: z.string().url().default("http://localhost:3333"),
-  REDIS_CONTENT_URL: z.string().url().default("redis://127.0.0.1:6379"),
+  REDIS_CONTENT_URL: z.string().url().default("redis://127.0.0.1:6381"),
   REDIS_CONTROL_URL: z.string().url().default("redis://127.0.0.1:6380"),
   DAILY_BUDGET_CNY: z.coerce.number().nonnegative().max(100000).default(1),
   SEARCH_COST_MICROYUAN: positive(5000),
