@@ -1,0 +1,21 @@
+.dialog { width: min(480px, calc(100% - 32px)); max-height: calc(100dvh - 40px); padding: 0; background: var(--surface); color: var(--text); border: 1px solid var(--control-border); border-radius: 18px; box-shadow: 0 24px 100px #0003; overflow: auto; }
+.dialog::backdrop { background: #111a2a66; backdrop-filter: blur(4px); }
+.content { padding: 29px; }
+.heading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 27px; }
+.heading p { font-size: 10px; color: var(--text-muted); letter-spacing: .15em; margin: 0 0 5px; }
+.heading h2 { font-size: 26px; font-weight: 500; margin: 0; }
+.sectionTitle { display: flex; align-items: center; gap: 10px; color: var(--accent); }
+.sectionTitle h3 { font-size: 17px; font-weight: 600; margin: 0; }
+.description { color: var(--text-muted); font-size: 13px; margin: 9px 0 17px; }
+.keyStatus { display: flex; align-items: center; gap: 8px; padding: 10px 13px; border-radius: 8px; background: var(--surface-soft); font-size: 12px; color: var(--text-muted); }
+.keyStatus span { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; }
+.keyLabel { display: block; margin: 24px 0 8px; font-size: 12px; }
+.content input { width: 100%; min-height: 48px; border: 1px solid var(--control-border); border-radius: 8px; color: var(--text); background: var(--bg); padding: 10px 13px; font-size: 16px; }
+.content input::placeholder { font-size: 12px; color: var(--text-muted); }
+.privacy { font-size: 11px; color: var(--text-muted); line-height: 1.9; margin: 12px 0 20px; }
+.actions { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.actions > :last-child { margin-left: auto; font-size: 12px; }
+.error { color: var(--error); background: var(--error-bg); border-radius: 8px; padding: 10px; font-size: 12px; }
+.notice { color: var(--accent); font-size: 12px; }
+.getKey { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 25px 0 0; min-height: 44px; border-top: 1px solid var(--border); padding-top: 15px; font-size: 11px; }
+@media (max-width: 480px) { .content { padding: 23px; }.heading { margin-bottom: 23px; } }
