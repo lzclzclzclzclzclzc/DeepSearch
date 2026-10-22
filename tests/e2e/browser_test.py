@@ -259,6 +259,64 @@ class BrowserAcceptance(unittest.TestCase):
         expect(self.page).to_have_url(re.compile("q=new\\+search"))
         expect(self.page.get_by_role("button", name="下一页", exact=True)).to_be_enabled()
 
+    def test_session_clear_blocks_new_search_until_it_finishes(self):
+        self.search()
+        held = []
+        self.page.route("**/api/session/data", lambda route: held.append(route))
+        self.page.get_by_role("button", name="清除会话数据", exact=True).click()
+        try:
+            expect(self.page.get_by_role("button", name="搜索", exact=True)).to_be_disabled()
+            expect(self.page.get_by_role("searchbox", name="搜索关键词")).to_be_disabled()
+            expect(self.page.get_by_role("button", name="结果语言", exact=True)).to_be_disabled()
+            expect(self.page.get_by_role("button", name="下一页", exact=True)).to_be_disabled()
+            self.page.get_by_role("search").dispatch_event("submit")
+            self.assertEqual(len(self.posts), 1)
+            self.page.screenshot(path=str(OUTPUT / "session-clearing-guard.png"), full_page=False)
+        finally:
+            if held:
+                held[0].fulfill(json={"cleared": True, "requestId": "test"})
+        expect(self.page.get_by_role("heading", level=1)).to_contain_text("让好奇")
+        expect(self.page).to_have_url(BASE + "/")
+        expect(self.page.get_by_role("searchbox")).to_have_value("")
+        self.search("fresh search")
+        expect(self.page).to_have_url(re.compile("q=fresh\\+search"))
+        self.assertEqual(len(self.posts), 2)
+
+    def test_session_clear_discards_late_results_from_the_aborted_search(self):
+        self.search()
+        held = []
+        self.page.route("**/api/search", lambda route: held.append(route))
+        self.page.get_by_role("searchbox").fill("late search")
+        self.page.get_by_role("button", name="搜索", exact=True).click()
+        expect(self.page.get_by_role("button", name="搜索", exact=True)).to_be_disabled()
+        self.page.get_by_role("button", name="清除会话数据", exact=True).click()
+        expect(self.page.get_by_role("heading", level=1)).to_contain_text("让好奇")
+        self.assertTrue(held)
+        held[0].fulfill(json=self.response(query="late search"))
+        expect(self.page.get_by_role("article")).to_have_count(0)
+        expect(self.page.get_by_role("searchbox")).to_have_value("")
+        expect(self.page).to_have_url(BASE + "/")
+        self.page.unroute("**/api/search")
+        self.search("after clear")
+
+    def test_failed_clear_restores_navigation_and_unlocks_search(self):
+        self.search()
+        self.page.get_by_role("button", name="第 2 页", exact=True).click()
+        expect(self.page.get_by_role("heading", level=1)).to_contain_text("第 11–20 条")
+        held = []
+        self.page.route("**/api/session/data", lambda route: held.append(route))
+        self.page.get_by_role("button", name="清除会话数据", exact=True).click()
+        try:
+            self.page.go_back()
+            expect(self.page.get_by_role("searchbox")).to_be_disabled()
+        finally:
+            if held:
+                held[0].fulfill(status=503, json={"error": {"code": "SERVICE_UNAVAILABLE", "message": "暂时无法清除"}})
+        expect(self.page.get_by_role("heading", level=1)).to_contain_text("第 1–10 条")
+        expect(self.page.get_by_role("searchbox")).to_be_enabled()
+        expect(self.page.get_by_role("button", name="搜索", exact=True)).to_be_enabled()
+        self.search("retry after failure")
+
     def test_keyboard_focus_and_theme_contrast(self):
         self.page.keyboard.press("Tab")
         expect(self.page.get_by_role("link", name="跳转到主要内容")).to_be_focused()

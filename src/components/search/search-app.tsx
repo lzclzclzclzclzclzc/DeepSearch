@@ -38,6 +38,7 @@ export function SearchApp() {
   const [siteOpen, setSiteOpen] = useState(false); const [siteMode, setSiteMode] = useState("include"); const [siteDraft, setSiteDraft] = useState("");
   const [customOpen, setCustomOpen] = useState(false); const [after, setAfter] = useState(""); const [before, setBefore] = useState("");
   const [notice, setNotice] = useState(""); const [clearing, setClearing] = useState(false);
+  const clearInFlight = useRef(false); const deferredRestore = useRef<(() => void) | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(""); const citationTarget = useRef("");
   const request = useRef<AbortController | null>(null); const sequence = useRef(0); const composing = useRef(false);
@@ -46,6 +47,7 @@ export function SearchApp() {
   const applied = useRef({ query: "", filters: emptyFilters(), period: "all" });
 
   const load = useCallback(async (state: LocationState, mode: "push" | "replace" | "none", fresh = false) => {
+    if (clearInFlight.current) return;
     request.current?.abort(); const controller = new AbortController(); request.current = controller; const id = ++sequence.current;
     pendingKind.current = state.searchId && !fresh ? "page" : "search"; setSearchPending(pendingKind.current === "search");
     setBusy(true); setError(null); setSearched(true);
@@ -71,15 +73,17 @@ export function SearchApp() {
 
   useEffect(() => {
     const restore = (first: boolean) => {
+      if (clearInFlight.current) { deferredRestore.current = () => restore(false); return; }
       const state = fromLocation(); setQuery(state.query); setFilters(state.filters); setPeriod(state.period);
       if (state.query) void load(state, first ? "replace" : "none");
       else { request.current?.abort(); ++sequence.current; setData(null); setError(null); setSearched(false); setBusy(false); setSearchPending(false); pendingKind.current = null; }
     };
     restore(true); const pop = () => restore(false); window.addEventListener("popstate", pop);
-    return () => { request.current?.abort(); window.removeEventListener("popstate", pop); };
+    return () => { request.current?.abort(); ++sequence.current; deferredRestore.current = null; window.removeEventListener("popstate", pop); };
   }, [load]);
   useEffect(() => { if (!notice) return; const timeout = setTimeout(() => setNotice(""), 4000); return () => clearTimeout(timeout); }, [notice]);
   function search(nextQuery = query, nextFilters = filters, nextPeriod = period) {
+    if (clearInFlight.current) return;
     const value = nextQuery.trim();
     if (!value) { setError({ code: "INVALID_QUERY", message: "请输入想查找的内容。", retryable: false }); input.current?.focus(); return; }
     if ([...value].length > 128) { setError({ code: "QUERY_TOO_LONG", message: "搜索词最多为 128 个字符。", retryable: false }); input.current?.focus(); return; }
@@ -89,20 +93,22 @@ export function SearchApp() {
   }
   function submit(event: FormEvent) { event.preventDefault(); if (!composing.current) search(); }
   function changeFilters(next: SearchFilters, nextPeriod = period) {
+    if (clearInFlight.current) return;
     setFilters(next); setPeriod(nextPeriod); setSiteOpen(false); setCustomOpen(false);
     if (searched && query.trim()) search(query, next, nextPeriod);
   }
   function changePeriod(value: string) {
+    if (clearInFlight.current) return;
     if (value === "custom") { setSiteOpen(false); setCustomOpen(true); setAfter(filters.after ?? ""); setBefore(filters.before ?? ""); return; }
     const date = new Date(); date.setDate(date.getDate() - (value === "week" ? 7 : 30));
     changeFilters({ ...filters, after: value === "all" ? null : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(date), before: null }, value);
   }
   function page(number: number) {
-    if (!data || pendingKind.current === "search" || clearing) return;
+    if (!data || pendingKind.current === "search" || clearInFlight.current) return;
     void load({ ...applied.current, page: number, searchId: data.searchId }, "push");
   }
   function source(id: string) {
-    if (!data || pendingKind.current === "search" || clearing) return;
+    if (!data || pendingKind.current === "search" || clearInFlight.current) return;
     setHighlighted(id); const number = Math.floor((Number(id.slice(1)) - 1) / 10) + 1;
     if (number !== data.page) { citationTarget.current = id; page(number); }
     else { const element = document.getElementById(`source-${id}`); element?.focus({ preventScroll: true }); element?.scrollIntoView({ block: "center" }); }
@@ -113,20 +119,33 @@ export function SearchApp() {
     catch { setNotice("暂时无法复制链接，请检查浏览器剪贴板权限。"); }
   }
   async function clear() {
-    setClearing(true); request.current?.abort(); ++sequence.current; setBusy(false); setSearchPending(false); pendingKind.current = null;
+    if (clearInFlight.current) return;
+    clearInFlight.current = true; setClearing(true); request.current?.abort(); const id = ++sequence.current;
+    setBusy(false); setSearchPending(false); pendingKind.current = null; setSiteOpen(false); setCustomOpen(false);
+    let cleared = false;
     try {
       const response = await fetch("/api/session/data", { method: "DELETE" });
+      if (id !== sequence.current) return;
       if (!response.ok) throw new Error("clear failed");
+      cleared = true;
       setData(null); setQuery(""); setFilters(emptyFilters()); setPeriod("all"); setError(null); setSearched(false);
-      history.pushState({}, "", "/"); setNotice("本次会话的搜索数据已清除。"); input.current?.focus();
-    } catch { setNotice("暂时无法清除会话数据，请稍后重试。"); }
-    finally { setClearing(false); }
+      setHighlighted(""); citationTarget.current = ""; applied.current = { query: "", filters: emptyFilters(), period: "all" }; lastAction.current = null;
+      history.pushState({}, "", "/"); setNotice("本次会话的搜索数据已清除。");
+    } catch { if (id === sequence.current) setNotice("暂时无法清除会话数据，请稍后重试。"); }
+    finally {
+      clearInFlight.current = false;
+      if (id === sequence.current) {
+        setClearing(false); const restore = deferredRestore.current; deferredRestore.current = null;
+        if (!cleared) restore?.();
+        else requestAnimationFrame(() => { if (id === sequence.current) input.current?.focus(); });
+      }
+    }
   }
   const activeFilters = filters.languages.length + filters.includeDomains.length + filters.excludeDomains.length + Number(Boolean(filters.after || filters.before));
   const form = <form className={`${styles.searchBox} ${searched ? styles.compactSearch : ""}`} onSubmit={submit} role="search">
     <Icon name="search" size={22}/><label className="sr-only" htmlFor="search-query">搜索关键词</label>
-    <input ref={input} id="search-query" name="q" type="search" value={query} onChange={event => setQuery(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={event => { if (event.key === "Enter" && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault(); }} placeholder="搜索你想了解的任何事物" autoComplete="off" aria-describedby={error?.code === "QUERY_TOO_LONG" ? "search-error" : undefined}/>
-    <button type="submit" className={styles.searchButton} aria-label="搜索" disabled={busy}><span>搜索</span><Icon name="arrow" size={19}/></button>
+    <input ref={input} id="search-query" name="q" type="search" disabled={clearing} value={query} onChange={event => setQuery(event.target.value)} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={event => { if (event.key === "Enter" && (event.nativeEvent.isComposing || composing.current || event.keyCode === 229)) event.preventDefault(); }} placeholder="搜索你想了解的任何事物" autoComplete="off" aria-describedby={error?.code === "QUERY_TOO_LONG" ? "search-error" : undefined}/>
+    <button type="submit" className={styles.searchButton} aria-label="搜索" disabled={busy || clearing}><span>搜索</span><Icon name="arrow" size={19}/></button>
   </form>;
 
   return <div data-page={searched ? "search" : "home"} className={`${styles.app} ${searched ? styles.resultsMode : styles.homeMode}`}>
@@ -139,30 +158,30 @@ export function SearchApp() {
       {!searched && <section className={styles.hero} aria-label="开始搜索">
         <h1>让好奇，<br/><span>找到方向。</span></h1>
         {form}
-        <div className={styles.suggestions}><span>试着探索</span>{examples.map(example => <button key={example} type="button" onClick={() => search(example)}>{example}<Icon name="arrow" size={14}/></button>)}</div>
+        <div className={styles.suggestions}><span>试着探索</span>{examples.map(example => <button key={example} type="button" disabled={clearing} onClick={() => search(example)}>{example}<Icon name="arrow" size={14}/></button>)}</div>
       </section>}
       {searched && <>
-        <div className={styles.toolRow}><span className={styles.activeTab}><Icon name="globe" size={17}/>网页</span><div className={styles.toolRight}><button className="text-button" onClick={share} disabled={!data}><Icon name="share" size={16}/>分享搜索</button></div></div>
-        <div className={styles.filters} aria-label="搜索筛选">
+        <div className={styles.toolRow}><span className={styles.activeTab}><Icon name="globe" size={17}/>网页</span><div className={styles.toolRight}><button className="text-button" onClick={share} disabled={!data || clearing}><Icon name="share" size={16}/>分享搜索</button></div></div>
+        <fieldset className={styles.filters} aria-label="搜索筛选" disabled={clearing}>
           <FilterSelect label="时间范围" icon="clock" value={customOpen ? "custom" : period} onChange={changePeriod} options={[{ value: "all", label: "不限时间" }, { value: "week", label: "最近一周" }, { value: "month", label: "最近一月" }, { value: "custom", label: "自定义日期" }]}/>
           <FilterSelect label="结果语言" icon="globe" value={filters.languages.join(",")} onChange={value => changeFilters({ ...filters, languages: value ? value.split(",") as SearchFilters["languages"] : [] })} options={[{ value: "", label: "不限语言" }, { value: "zh", label: "中文" }, { value: "en", label: "英文" }, { value: "zh,en", label: "中文和英文" }]}/>
           <button className={`${styles.filterButton} ${siteOpen ? styles.filterActive : ""}`} aria-expanded={siteOpen} aria-controls="site-filter" onClick={() => { setSiteOpen(!siteOpen); setCustomOpen(false); setSiteDraft([...filters.includeDomains, ...filters.excludeDomains].join(", ")); setSiteMode(filters.excludeDomains.length ? "exclude" : "include"); }}><Icon name="filter" size={16}/>{filters.includeDomains.length + filters.excludeDomains.length ? "已筛选站点" : "全部站点"}<Icon name="chevron" size={12} style={{ transform: "rotate(90deg)" }}/></button>
           {activeFilters > 0 && <button className={styles.resetFilters} onClick={() => changeFilters(emptyFilters(), "all")}><Icon name="close" size={14}/>清除筛选</button>}
           {siteOpen && <form id="site-filter" className={styles.filterPanel} onSubmit={event => { event.preventDefault(); const domains = siteDraft.split(/[,，\s]+/u).filter(Boolean); changeFilters({ ...filters, includeDomains: siteMode === "include" ? domains : [], excludeDomains: siteMode === "exclude" ? domains : [] }); }}><div className={styles.panelHeading}>筛选来源站点<button type="button" className="icon-button" aria-label="关闭站点筛选" onClick={() => setSiteOpen(false)}><Icon name="close" size={16}/></button></div><label>筛选方式<select aria-label="站点筛选方式" value={siteMode} onChange={event => setSiteMode(event.target.value)}><option value="include">仅包含这些站点</option><option value="exclude">排除这些站点</option></select></label><label>域名<input value={siteDraft} onChange={event => setSiteDraft(event.target.value)} placeholder="例如 wikipedia.org" autoFocus/></label><p>最多 5 个域名，用逗号分隔，不含 https://。</p><button type="submit" className="primary-button">应用筛选<Icon name="arrow" size={16}/></button></form>}
           {customOpen && <form className={styles.filterPanel} onSubmit={event => { event.preventDefault(); changeFilters({ ...filters, after: after || null, before: before || null }, "custom"); }}><div className={styles.panelHeading}>自定义日期<button className="icon-button" aria-label="关闭日期筛选" type="button" onClick={() => setCustomOpen(false)}><Icon name="close" size={16}/></button></div><label>开始日期<input type="date" value={after} onChange={event => setAfter(event.target.value)}/></label><label>结束日期<input type="date" value={before} onChange={event => setBefore(event.target.value)}/></label><p>按网页发布时间筛选。</p><button type="submit" className="primary-button">应用日期<Icon name="arrow" size={16}/></button></form>}
-        </div>
+        </fieldset>
         {activeFilters > 0 && <div className={styles.filterSummary}>{filters.includeDomains.map(d => <span key={d}>仅限 {d}</span>)}{filters.excludeDomains.map(d => <span key={d}>排除 {d}</span>)}{(filters.after || filters.before) && <button type="button" onClick={() => { setSiteOpen(false); setCustomOpen(true); setAfter(filters.after ?? ""); setBefore(filters.before ?? ""); }} title="编辑日期范围">{filters.after ?? "不限起始"} — {filters.before ?? "不限结束"}<Icon name="filter" size={13}/></button>}</div>}
       </>}
-      {error && <div id="search-error" className={styles.error} role="alert"><Icon name="alert" size={22}/><div><strong>{error.code === "SNAPSHOT_EXPIRED" ? "本次搜索已过期" : "这次搜索遇到了一点问题"}</strong><p>{error.message}</p>{data && <p>下方保留上次成功获取的结果。</p>}{error.code === "SNAPSHOT_EXPIRED" ? <button className="text-button" onClick={() => search()}>重新搜索<Icon name="arrow" size={15}/></button> : error.retryable && <button className="text-button" onClick={() => lastAction.current?.()}>重试<Icon name="arrow" size={15}/></button>}</div></div>}
+      {error && <div id="search-error" className={styles.error} role="alert"><Icon name="alert" size={22}/><div><strong>{error.code === "SNAPSHOT_EXPIRED" ? "本次搜索已过期" : "这次搜索遇到了一点问题"}</strong><p>{error.message}</p>{data && <p>下方保留上次成功获取的结果。</p>}{error.code === "SNAPSHOT_EXPIRED" ? <button className="text-button" disabled={clearing} onClick={() => search()}>重新搜索<Icon name="arrow" size={15}/></button> : error.retryable && <button className="text-button" disabled={clearing} onClick={() => lastAction.current?.()}>重试<Icon name="arrow" size={15}/></button>}</div></div>}
       {searched && <div className={styles.resultGrid}><section className={styles.resultColumn} aria-busy={busy}>
-        {data && data.snapshotCount > 0 && <AnswerPanel key={data.searchId} searchId={data.searchId} disabled={busy} onSource={source}/>}
+        {data && data.snapshotCount > 0 && <AnswerPanel key={data.searchId} searchId={data.searchId} disabled={busy || clearing} onSource={source}/>}
         {data?.warnings.map(warning => <p className={styles.staleWarning} role="status" key={warning}>{warning}</p>)}
         <div className={styles.resultMeta}><h1 ref={heading} tabIndex={-1} className={styles.resultHeading}>{data ? data.snapshotCount ? <>第 {(data.page - 1) * 10 + 1}–{Math.min(data.page * 10, data.snapshotCount)} 条<span> / 本次共 {data.snapshotCount} 条</span></> : "本次未找到结果" : busy ? "正在查找相关网页…" : "搜索结果"}</h1>{data && <span className={styles.fetchedTime}>{formatTime(data.fetchedAt)} 获取{data.cache === "stale" ? " · 较早结果" : ""}</span>}</div>
-        {busy && !data ? <div className={styles.skeletons} aria-label="正在加载搜索结果">{Array.from({ length: 5 }, (_, i) => <div className={styles.skeleton} key={i}><i/><b/><span/><span/></div>)}</div> : data?.snapshotCount === 0 ? <div className={styles.emptyState}><div className={styles.emptyIcon}><Icon name="search" size={28}/></div><h2>有时候，换个问法就能找到。</h2><p>试试更简短的关键词，<br/>或取消部分筛选，给发现多一点空间。</p>{activeFilters > 0 && <button className="primary-button" onClick={() => changeFilters(emptyFilters(), "all")}>取消筛选，重新搜索<Icon name="arrow" size={16}/></button>}</div> : <div className={busy ? styles.dimResults : ""}>{data?.results.map(result => <article id={`source-${result.sourceId}`} tabIndex={-1} className={`${styles.result} ${highlighted === result.sourceId ? styles.highlighted : ""}`} key={result.sourceId}>
+        {busy && !data ? <div className={styles.skeletons} aria-label="正在加载搜索结果">{Array.from({ length: 5 }, (_, i) => <div className={styles.skeleton} key={i}><i/><b/><span/><span/></div>)}</div> : data?.snapshotCount === 0 ? <div className={styles.emptyState}><div className={styles.emptyIcon}><Icon name="search" size={28}/></div><h2>有时候，换个问法就能找到。</h2><p>试试更简短的关键词，<br/>或取消部分筛选，给发现多一点空间。</p>{activeFilters > 0 && <button className="primary-button" disabled={clearing} onClick={() => changeFilters(emptyFilters(), "all")}>取消筛选，重新搜索<Icon name="arrow" size={16}/></button>}</div> : <div className={busy ? styles.dimResults : ""}>{data?.results.map(result => <article id={`source-${result.sourceId}`} tabIndex={-1} className={`${styles.result} ${highlighted === result.sourceId ? styles.highlighted : ""}`} key={result.sourceId}>
           <div className={styles.source}><span className={styles.domainIcon} aria-hidden="true">{result.domain.replace(/^www\./, "").slice(0, 1).toUpperCase()}</span><div><span className={styles.siteName}>{result.siteName}</span><span className={styles.sourcePath}>{result.domain}{result.publishedAt && <><span> · </span><time dateTime={result.publishedAt}>{new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Asia/Shanghai" }).format(new Date(result.publishedAt))}</time></>}</span></div><span className={styles.sourceNumber}>{result.sourceId}</span></div>
           <h2><a href={result.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{result.title}<Icon name="external" size={15}/></a></h2><p className={styles.snippet}>{result.snippet || "此网页暂未提供摘要，打开来源了解更多。"}</p>
         </article>)}</div>}
-        {data && data.totalPages > 0 && <nav className={styles.pagination} aria-label="搜索结果分页"><button onClick={() => page(data.page - 1)} disabled={searchPending || !data.hasPreviousPage} aria-label="上一页"><Icon name="chevron" size={16} style={{ transform: "rotate(180deg)" }}/><span>上一页</span></button><div className={styles.pageNumbers}>{Array.from({ length: data.totalPages }, (_, i) => i + 1).map(number => <button key={number} onClick={() => page(number)} disabled={searchPending} aria-label={`第 ${number} 页`} aria-current={data.page === number ? "page" : undefined}>{number}</button>)}</div><span className={styles.mobilePage}>{data.page} / {data.totalPages}</span><button onClick={() => page(data.page + 1)} disabled={searchPending || !data.hasNextPage} aria-label="下一页"><span>下一页</span><Icon name="chevron" size={16}/></button></nav>}
+        {data && data.totalPages > 0 && <nav className={styles.pagination} aria-label="搜索结果分页"><button onClick={() => page(data.page - 1)} disabled={clearing || searchPending || !data.hasPreviousPage} aria-label="上一页"><Icon name="chevron" size={16} style={{ transform: "rotate(180deg)" }}/><span>上一页</span></button><div className={styles.pageNumbers}>{Array.from({ length: data.totalPages }, (_, i) => i + 1).map(number => <button key={number} onClick={() => page(number)} disabled={clearing || searchPending} aria-label={`第 ${number} 页`} aria-current={data.page === number ? "page" : undefined}>{number}</button>)}</div><span className={styles.mobilePage}>{data.page} / {data.totalPages}</span><button onClick={() => page(data.page + 1)} disabled={clearing || searchPending || !data.hasNextPage} aria-label="下一页"><span>下一页</span><Icon name="chevron" size={16}/></button></nav>}
         {data && data.totalPages > 0 && <p className={styles.paginationNote}>{data.hasNextPage ? "每页 10 条 · 翻页继续浏览本次搜索结果" : "已到本次结果末页 · 试着调整关键词，发现更多"}</p>}
       </section></div>}
       <p className="sr-only" role="status" aria-live="polite">{busy ? "正在加载，请稍候。" : data ? `已显示第 ${data.page} 页，本次共 ${data.snapshotCount} 条结果。` : ""}</p>

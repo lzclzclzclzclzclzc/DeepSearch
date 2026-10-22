@@ -35,7 +35,7 @@
 .toolRow { height: 46px; display: flex; align-items: stretch; border-bottom: 1px solid var(--border); gap: 30px; }
 .activeTab { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--accent); border-bottom: 2px solid var(--accent); padding: 0 4px; }
 .toolRight { margin-left: auto; display: flex; align-items: center; gap: 35px; font-size: 11px; color: var(--text-muted); }
-.filters { position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 0; flex-wrap: wrap; z-index: 4; }
+.filters { border: 0; margin: 0; min-width: 0; position: relative; display: flex; align-items: center; gap: 10px; padding: 18px 0; flex-wrap: wrap; z-index: 4; }
 .filterButton { border: 1px solid var(--control-border); border-radius: 8px; min-height: 44px; padding: 0 11px; display: flex; align-items: center; gap: 6px; font-size: 12px; background: var(--surface); }
 .filterButton:hover, .filterActive { background: var(--surface-soft); color: var(--accent); }
 .resetFilters { font-size: 11px; color: var(--text-muted); min-height: 44px; display: flex; align-items: center; gap: 5px; padding: 0 8px; }
